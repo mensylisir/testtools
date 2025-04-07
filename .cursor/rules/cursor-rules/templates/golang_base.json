@@ -1,0 +1,73 @@
+{
+  "name": "Go基础规则",
+  "description": "适用于Go项目的基础Cursor规则",
+  "version": "1.0.0",
+  "rules": [
+    {
+      "name": "错误处理",
+      "description": "Go代码中应该始终检查错误",
+      "pattern": "\\w+\\s*,\\s*err\\s*:=\\s*\\w+",
+      "actions": [
+        {
+          "type": "suggest",
+          "message": "确保检查并处理返回的错误"
+        }
+      ]
+    },
+    {
+      "name": "命名约定",
+      "description": "Go命名约定检查",
+      "pattern": "type\\s+[a-z]\\w+\\s+struct",
+      "actions": [
+        {
+          "type": "warn",
+          "message": "结构体名称应该使用驼峰命名法并以大写字母开头"
+        }
+      ]
+    },
+    {
+      "name": "注释格式",
+      "description": "函数应该有标准格式的注释",
+      "pattern": "func\\s+\\w+\\s*\\(",
+      "actions": [
+        {
+          "type": "suggest",
+          "message": "函数应该有标准格式的注释，描述功能、参数和返回值"
+        }
+      ]
+    },
+    {
+      "name": "包导入分组",
+      "description": "导入应该分组并排序",
+      "pattern": "import\\s*\\(",
+      "actions": [
+        {
+          "type": "suggest",
+          "message": "导入应该按标准库、第三方库和内部包分组，并按字母顺序排序"
+        }
+      ]
+    },
+    {
+      "name": "defer使用",
+      "description": "资源应该使用defer关闭",
+      "pattern": "\\w+\\.Open|\\w+\\.New\\w+",
+      "actions": [
+        {
+          "type": "suggest",
+          "message": "考虑使用defer语句来确保资源正确关闭"
+        }
+      ]
+    },
+    {
+      "name": "上下文传递",
+      "description": "函数应该接受context参数",
+      "pattern": "func\\s+\\w+\\s*\\([^)]*\\)\\s*\\(",
+      "actions": [
+        {
+          "type": "suggest",
+          "message": "长时间运行的函数应该接受context.Context作为第一个参数"
+        }
+      ]
+    }
+  ]
+}

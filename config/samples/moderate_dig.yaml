@@ -1,0 +1,28 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Dig
+metadata:
+  name: moderate-dig-example
+  labels:
+    app: dns-testing
+    environment: testing
+spec:
+  # 基本配置 - 域名查询
+  domain: "baidu.com"
+  
+  # 使用特定DNS服务器
+  server: "114.114.114.114"
+  
+  # 设置查询类型（查询A记录）
+  queryType: "A"
+  
+  # 使用TCP协议而不是默认的UDP
+  useTCP: true
+  
+  # 设置查询超时为15秒
+  timeout: 15
+  
+  # 定期执行，每60秒一次
+  schedule: "60"
+  
+  # 失败时重试3次
+  maxRetries: 3 

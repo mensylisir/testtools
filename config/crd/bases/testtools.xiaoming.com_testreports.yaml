@@ -1,0 +1,326 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: testreports.testtools.xiaoming.com
+spec:
+  group: testtools.xiaoming.com
+  names:
+    kind: TestReport
+    listKind: TestReportList
+    plural: testreports
+    singular: testreport
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.testType
+      name: Type
+      type: string
+    - jsonPath: .spec.target
+      name: Target
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.summary.total
+      name: Total
+      type: integer
+    - jsonPath: .status.summary.succeeded
+      name: Succeeded
+      type: integer
+    - jsonPath: .status.summary.failed
+      name: Failed
+      type: integer
+    - jsonPath: .status.summary.averageResponseTime
+      name: AvgResponse
+      type: number
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: TestReport is the Schema for the testreports API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: TestReportSpec defines the desired state of TestReport
+            properties:
+              interval:
+                description: Interval is the interval between test runs in seconds
+                type: integer
+              parameters:
+                additionalProperties:
+                  type: string
+                description: Parameters contains additional test parameters
+                type: object
+              resourceSelectors:
+                description: ResourceSelectors defines which resources to collect
+                  results from
+                items:
+                  description: ResourceSelector selects resources to include in the
+                    test report
+                  properties:
+                    apiVersion:
+                      description: APIVersion of the resource
+                      type: string
+                    kind:
+                      description: Kind of the resource
+                      type: string
+                    labelSelector:
+                      description: LabelSelector for the resources
+                      properties:
+                        matchExpressions:
+                          description: matchExpressions is a list of label selector
+                            requirements. The requirements are ANDed.
+                          items:
+                            description: |-
+                              A label selector requirement is a selector that contains values, a key, and an operator that
+                              relates the key and values.
+                            properties:
+                              key:
+                                description: key is the label key that the selector
+                                  applies to.
+                                type: string
+                              operator:
+                                description: |-
+                                  operator represents a key's relationship to a set of values.
+                                  Valid operators are In, NotIn, Exists and DoesNotExist.
+                                type: string
+                              values:
+                                description: |-
+                                  values is an array of string values. If the operator is In or NotIn,
+                                  the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                  the values array must be empty. This array is replaced during a strategic
+                                  merge patch.
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                        matchLabels:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                            map is equivalent to an element of matchExpressions, whose key field is "key", the
+                            operator is "In", and the values array contains only "value". The requirements are ANDed.
+                          type: object
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    name:
+                      description: Name of the resource
+                      type: string
+                    namespace:
+                      description: Namespace of the resource
+                      type: string
+                  required:
+                  - apiVersion
+                  - kind
+                  type: object
+                type: array
+              target:
+                description: Target is the target of the test (e.g., domain, IP, service)
+                type: string
+              testDuration:
+                description: TestDuration is the duration of the test in seconds
+                type: integer
+              testName:
+                description: TestName is the name of the test
+                type: string
+              testType:
+                description: TestType is the type of test
+                enum:
+                - DNS
+                - Network
+                - Performance
+                type: string
+            required:
+            - target
+            - testName
+            - testType
+            type: object
+          status:
+            description: TestReportStatus defines the observed state of TestReport
+            properties:
+              completionTime:
+                description: CompletionTime is the time when test collection completed
+                format: date-time
+                type: string
+              conditions:
+                description: Conditions represents the latest available observations
+                  of the test report's state
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: 'type of condition in CamelCase or in foo.xiaoming.com/CamelCase.'
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              phase:
+                description: Phase is the current phase of the test report
+                type: string
+              results:
+                description: Results contains the test results
+                items:
+                  description: TestResult contains a single test result
+                  properties:
+                    error:
+                      description: Error contains the error message if test failed
+                      type: string
+                    executionTime:
+                      description: ExecutionTime is when the test was executed
+                      format: date-time
+                      type: string
+                    metricValues:
+                      additionalProperties:
+                        type: string
+                      description: MetricValues contains test metrics
+                      type: object
+                    output:
+                      description: Output contains the test output
+                      type: string
+                    resourceKind:
+                      description: ResourceKind is the kind of the resource
+                      type: string
+                    resourceName:
+                      description: ResourceName is the name of the resource
+                      type: string
+                    resourceNamespace:
+                      description: ResourceNamespace is the namespace of the resource
+                      type: string
+                    responseTime:
+                      description: ResponseTime is the response time in milliseconds
+                      type: number
+                    success:
+                      description: Success indicates if the test was successful
+                      type: boolean
+                  required:
+                  - executionTime
+                  - resourceKind
+                  - resourceName
+                  - resourceNamespace
+                  - success
+                  type: object
+                type: array
+              startTime:
+                description: StartTime is the time when test collection started
+                format: date-time
+                type: string
+              summary:
+                description: Summary contains summary metrics
+                properties:
+                  averageResponseTime:
+                    description: Average response time across all tests in milliseconds
+                    type: number
+                  failed:
+                    description: Number of failed tests
+                    type: integer
+                  maxResponseTime:
+                    description: Max response time across all tests in milliseconds
+                    type: number
+                  metrics:
+                    additionalProperties:
+                      type: string
+                    description: Additional metrics
+                    type: object
+                  minResponseTime:
+                    description: Min response time across all tests in milliseconds
+                    type: number
+                  succeeded:
+                    description: Number of successful tests
+                    type: integer
+                  total:
+                    description: Total number of tests run
+                    type: integer
+                required:
+                - failed
+                - succeeded
+                - total
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

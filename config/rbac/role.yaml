@@ -1,0 +1,57 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - digs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - digs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - digs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - testreports
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - testreports/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - testreports/status
+  verbs:
+  - get
+  - patch
+  - update 

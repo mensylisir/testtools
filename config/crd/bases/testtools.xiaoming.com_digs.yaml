@@ -1,0 +1,255 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: digs.testtools.xiaoming.com
+spec:
+  group: testtools.xiaoming.com
+  names:
+    kind: Dig
+    listKind: DigList
+    plural: digs
+    singular: dig
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - jsonPath: .status.queryCount
+      name: QueryCount
+      type: integer
+    - jsonPath: .status.lastExecutionTime
+      name: LastRun
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: Dig is the Schema for the digs API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DigSpec defines the desired state of Dig
+            properties:
+              concurrency:
+                default: 1
+                description: Concurrency is the number of concurrent queries to run
+                format: int32
+                maximum: 10
+                minimum: 1
+                type: integer
+              domain:
+                description: Domain is the domain name to query
+                type: string
+              keyFile:
+                description: KeyFile specifies the TSIG key file (-k parameter)
+                type: string
+              maxRetries:
+                default: 3
+                description: MaxRetries is the maximum number of retries for failed
+                  queries
+                format: int32
+                maximum: 10
+                minimum: 1
+                type: integer
+              port:
+                description: Port specifies a non-standard port number (-p parameter)
+                format: int32
+                type: integer
+              queryClass:
+                description: QueryClass overrides the default query class (-c parameter)
+                enum:
+                - IN
+                - HS
+                - CH
+                type: string
+              queryFile:
+                description: QueryFile specifies a file with query requests (-f parameter)
+                type: string
+              queryName:
+                description: QueryName sets the query name (-q parameter)
+                type: string
+              queryType:
+                default: A
+                description: QueryType sets the query type (-t parameter)
+                enum:
+                - A
+                - AAAA
+                - NS
+                - MX
+                - TXT
+                - CNAME
+                - SOA
+                - PTR
+                - SRV
+                - CAA
+                type: string
+              reverseQuery:
+                description: ReverseQuery simplifies reverse lookup (-x parameter)
+                type: string
+              schedule:
+                description: Schedule is the cron schedule for running the dig command
+                type: string
+              server:
+                description: Server is the name server to query (@server parameter)
+                type: string
+              sourceIP:
+                description: SourceIP sets the source IP address for the query (-b
+                  parameter)
+                type: string
+              sourcePort:
+                description: SourcePort sets the source port for the query (with -b
+                  parameter)
+                format: int32
+                type: integer
+              timeout:
+                default: 5
+                description: Timeout sets the query timeout in seconds (+time option)
+                format: int32
+                maximum: 60
+                minimum: 1
+                type: integer
+              tsigKey:
+                description: TSIGKey specifies TSIG key on command line (-y parameter)
+                type: string
+              useIPv4Only:
+                description: UseIPv4Only forces IPv4 query transport (-4 parameter)
+                type: boolean
+              useIPv6Only:
+                description: UseIPv6Only forces IPv6 query transport (-6 parameter)
+                type: boolean
+              useMicroseconds:
+                description: UseMicroseconds indicates that query time should be in
+                  microseconds (-u parameter)
+                type: boolean
+              useTCP:
+                description: UseTCP specifies whether to use TCP for queries (+tcp
+                  option)
+                type: boolean
+            required:
+            - domain
+            type: object
+          status:
+            description: DigStatus defines the observed state of Dig
+            properties:
+              averageResponseTime:
+                description: AverageResponseTime is the average response time in milliseconds
+                type: number
+              conditions:
+                description: Conditions represents the latest available observations
+                  of the dig's current state
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: 'type of condition in CamelCase or in foo.xiaoming.com/CamelCase.'
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              failureCount:
+                description: FailureCount is the number of failed queries
+                format: int64
+                type: integer
+              lastExecutionTime:
+                description: LastExecutionTime is the time of the last execution
+                format: date-time
+                type: string
+              lastResult:
+                description: LastResult is the result of the last dig operation
+                type: string
+              queryCount:
+                description: QueryCount is the number of queries executed
+                format: int64
+                type: integer
+              status:
+                description: Status is the status of the last dig operation
+                type: string
+              successCount:
+                description: SuccessCount is the number of successful queries
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

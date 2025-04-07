@@ -1,0 +1,1 @@
+{"name":"Java基础规则","description":"适用于Java项目的基础规则","rules":[{"name":"命名约定","pattern":"class ","message":"类名应使用驼峰命名法"}]}

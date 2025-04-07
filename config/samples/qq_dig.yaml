@@ -1,0 +1,35 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Dig
+metadata:
+  name: qq-mx-check
+  labels:
+    app: mail-system
+    service: email
+    environment: testing
+  annotations:
+    description: "QQ邮件服务器MX记录监控"
+    team: "邮件服务团队"
+spec:
+  # 查询QQ域名
+  domain: "qq.com"
+  
+  # 使用腾讯DNS服务器
+  server: "119.29.29.29"
+  
+  # 查询邮件交换记录
+  queryType: "MX"
+  
+  # 不使用TCP协议进行查询，改用默认的UDP
+  useTCP: false
+  
+  # 设置更短的超时时间
+  timeout: 10
+  
+  # 使用IPv4
+  useIPv4Only: true
+  
+  # 每45秒执行一次
+  schedule: "45"
+  
+  # 重试4次
+  maxRetries: 4 

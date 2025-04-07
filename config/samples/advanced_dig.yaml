@@ -1,0 +1,43 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Dig
+metadata:
+  name: advanced-k8s-dig
+  labels:
+    app: dns-monitoring
+    environment: production
+    tier: infrastructure
+    team: platform
+  annotations:
+    description: "Kubernetes官网DNS解析监控"
+    contact: "platform-team@example.com"
+    severity: "critical"
+spec:
+  # 使用Kubernetes官网作为查询目标
+  domain: "kubernetes.io"
+  
+  # 使用Google的DNS服务器
+  server: "8.8.8.8"
+  
+  # 查询NS记录
+  queryType: "NS"
+  
+  # 使用TCP协议查询（适合大型响应）
+  useTCP: true
+  
+  # 适当增加超时时间（处理大量NS记录）
+  timeout: 20
+  
+  # 仅使用IPv4协议栈
+  useIPv4Only: true
+  
+  # 设置更频繁的检查
+  schedule: "30"
+  
+  # 增加失败重试次数
+  maxRetries: 5
+  
+  # 设置一定的并发度
+  concurrency: 2
+  
+  # 使用微秒级精度来精确测量响应时间
+  useMicroseconds: true 
