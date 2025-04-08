@@ -32,6 +32,32 @@ rules:
 - apiGroups:
   - testtools.xiaoming.com
   resources:
+  - pings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - pings/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - pings/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
   - testreports
   verbs:
   - create

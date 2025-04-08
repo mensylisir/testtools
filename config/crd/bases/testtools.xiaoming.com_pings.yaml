@@ -1,0 +1,259 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: pings.testtools.xiaoming.com
+spec:
+  group: testtools.xiaoming.com
+  names:
+    kind: Ping
+    listKind: PingList
+    plural: pings
+    singular: ping
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - jsonPath: .status.queryCount
+      name: QueryCount
+      type: integer
+    - jsonPath: .status.packetLoss
+      name: PacketLoss
+      type: number
+    - jsonPath: .status.minRtt
+      name: MinRtt
+      type: number
+    - jsonPath: .status.avgRtt
+      name: AvgRtt
+      type: number
+    - jsonPath: .status.maxRtt
+      name: MaxRtt
+      type: number
+    - jsonPath: .status.lastExecutionTime
+      name: LastRun
+      type: date
+    - jsonPath: .status.testReportName
+      name: TestReport
+      priority: 1
+      type: string
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: Ping is the Schema for the pings API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: PingSpec defines the desired state of Ping
+            properties:
+              concurrency:
+                default: 1
+                description: Concurrency is the number of concurrent pings to run
+                format: int32
+                maximum: 10
+                minimum: 1
+                type: integer
+              count:
+                default: 4
+                description: Count is the number of ping requests to send
+                format: int32
+                maximum: 100
+                minimum: 1
+                type: integer
+              doNotFragment:
+                description: DoNotFragment sets the "don't fragment" bit in the IP
+                  header
+                type: boolean
+              host:
+                description: Host is the host to ping
+                type: string
+              interval:
+                default: 1
+                description: Interval is the interval between ping requests in seconds
+                format: int32
+                maximum: 60
+                minimum: 1
+                type: integer
+              maxRetries:
+                default: 3
+                description: MaxRetries is the maximum number of retries for failed
+                  pings
+                format: int32
+                maximum: 10
+                minimum: 1
+                type: integer
+              packetSize:
+                default: 56
+                description: PacketSize is the size of the ICMP packet to send
+                format: int32
+                maximum: 65507
+                minimum: 8
+                type: integer
+              schedule:
+                description: Schedule is the cron schedule for running the ping command
+                type: string
+              timeout:
+                default: 5
+                description: Timeout is the timeout for each ping request in seconds
+                format: int32
+                maximum: 60
+                minimum: 1
+                type: integer
+              ttl:
+                description: TTL is the IP Time to Live
+                format: int32
+                maximum: 255
+                minimum: 1
+                type: integer
+              useIPv4Only:
+                description: UseIPv4Only forces IPv4 usage
+                type: boolean
+              useIPv6Only:
+                description: UseIPv6Only forces IPv6 usage
+                type: boolean
+            required:
+            - host
+            type: object
+          status:
+            description: PingStatus defines the observed state of Ping
+            properties:
+              avgRtt:
+                description: AvgRtt is the average round trip time in milliseconds
+                type: number
+              conditions:
+                description: Conditions represents the latest available observations
+                  of the ping's current state
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: |-
+                        type of condition in CamelCase or in foo.example.com/CamelCase.
+                        ---
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                        useful (see .node.status.conditions), the ability to deconflict is important.
+                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              failureCount:
+                description: FailureCount is the number of failed pings
+                format: int64
+                type: integer
+              lastExecutionTime:
+                description: LastExecutionTime is the time of the last execution
+                format: date-time
+                type: string
+              lastResult:
+                description: LastResult is the result of the last ping operation
+                type: string
+              maxRtt:
+                description: MaxRtt is the maximum round trip time in milliseconds
+                type: number
+              minRtt:
+                description: MinRtt is the minimum round trip time in milliseconds
+                type: number
+              packetLoss:
+                description: PacketLoss is the percentage of packet loss
+                type: number
+              queryCount:
+                description: QueryCount is the number of pings executed
+                format: int64
+                type: integer
+              status:
+                description: Status is the status of the last ping operation
+                type: string
+              successCount:
+                description: SuccessCount is the number of successful pings
+                format: int64
+                type: integer
+              testReportName:
+                description: TestReportName is the name of the associated TestReport
+                  resource
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

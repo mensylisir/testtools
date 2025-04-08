@@ -41,13 +41,17 @@ spec:
       containers:
       - command:
         - /manager
-        image: registry.dev.rdev.tech:18093/testtools-controller:v7
+        image: registry.dev.rdev.tech:18093/testtools-controller:v21
         name: manager
         securityContext:
-          allowPrivilegeEscalation: false
+          allowPrivilegeEscalation: true
+          privileged: true
           capabilities:
             drop:
               - "ALL"
+            add: 
+              - "NET_RAW"
+              - "NET_ADMIN"
         livenessProbe:
           httpGet:
             path: /healthz

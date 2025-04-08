@@ -27,7 +27,7 @@ type TestReportSpec struct {
 	TestName string `json:"testName"`
 
 	// TestType is the type of test
-	// +kubebuilder:validation:Enum=DNS;Network;Performance
+	// +kubebuilder:validation:Enum=DNS;Network;Performance;PING
 	// +kubebuilder:validation:Required
 	TestType string `json:"testType"`
 

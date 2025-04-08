@@ -1,0 +1,43 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Ping
+metadata:
+  name: ping-advanced
+  labels:
+    app: network-monitoring
+    environment: production
+    tier: infrastructure
+    team: platform
+  annotations:
+    description: "网络可达性监控"
+    contact: "platform-team@example.com"
+    severity: "critical"
+spec:
+  # 目标主机
+  host: "kubernetes.io"
+  
+  # 发送10个ICMP包
+  count: 10
+  
+  # 每秒发送一个包
+  interval: 1
+  
+  # 超时时间设置为3秒
+  timeout: 3
+  
+  # ICMP包大小为100字节
+  packetSize: 100
+  
+  # 设置TTL为64
+  ttl: 64
+  
+  # 不分片包
+  doNotFragment: true
+  
+  # 仅使用IPv4
+  useIPv4Only: true
+  
+  # 每30秒执行一次
+  schedule: "30"
+  
+  # 失败时重试5次
+  maxRetries: 5 

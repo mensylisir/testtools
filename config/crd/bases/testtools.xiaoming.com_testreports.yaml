@@ -36,6 +36,18 @@ spec:
     - jsonPath: .status.summary.averageResponseTime
       name: AvgResponse
       type: number
+    - jsonPath: .status.summary.minResponseTime
+      name: MinResponse
+      priority: 1
+      type: number
+    - jsonPath: .status.summary.maxResponseTime
+      name: MaxResponse
+      priority: 1
+      type: number
+    - jsonPath: .spec.testDuration
+      name: Duration
+      priority: 1
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -114,11 +126,13 @@ spec:
                                 items:
                                   type: string
                                 type: array
+                                x-kubernetes-list-type: atomic
                             required:
                             - key
                             - operator
                             type: object
                           type: array
+                          x-kubernetes-list-type: atomic
                         matchLabels:
                           additionalProperties:
                             type: string
@@ -155,6 +169,7 @@ spec:
                 - DNS
                 - Network
                 - Performance
+                - PING
                 type: string
             required:
             - target
@@ -222,7 +237,12 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: 'type of condition in CamelCase or in foo.xiaoming.com/CamelCase.'
+                      description: |-
+                        type of condition in CamelCase or in foo.example.com/CamelCase.
+                        ---
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                        useful (see .node.status.conditions), the ability to deconflict is important.
+                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -258,7 +278,10 @@ spec:
                       description: MetricValues contains test metrics
                       type: object
                     output:
-                      description: Output contains the test output
+                      description: Output contains the formatted test output
+                      type: string
+                    rawOutput:
+                      description: RawOutput contains the original unformatted output
                       type: string
                     resourceKind:
                       description: ResourceKind is the kind of the resource
