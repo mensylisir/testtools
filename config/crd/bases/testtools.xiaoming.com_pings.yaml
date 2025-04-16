@@ -133,6 +133,10 @@ spec:
               useIPv6Only:
                 description: UseIPv6Only forces IPv6 usage
                 type: boolean
+              image:
+                description: Image specifies the container image used to run the Ping test
+                default: "registry.dev.rdev.tech:18093/testtools-ping:v1"
+                type: string
             required:
             - host
             type: object

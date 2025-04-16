@@ -160,6 +160,10 @@ spec:
                 description: UseTCP specifies whether to use TCP for queries (+tcp
                   option)
                 type: boolean
+              image:
+                description: Image specifies the container image used to run the Dig test
+                default: "registry.dev.rdev.tech:18093/testtools-dig:v1"
+                type: string
             required:
             - domain
             type: object

@@ -89,6 +89,11 @@ type PingSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=10
 	Concurrency int32 `json:"concurrency,omitempty"`
+
+	// Image specifies the container image used to run the Ping test
+	// +optional
+	// +kubebuilder:default="172.30.1.13:18093/testtools-ping:v1"
+	Image string `json:"image,omitempty"`
 }
 
 // PingStatus defines the observed state of Ping

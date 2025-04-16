@@ -1,0 +1,55 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-best-practices
+  annotations:
+    description: "FIO最佳实践示例，包括重试机制和完整配置选项"
+  labels:
+    environment: "production"
+    tier: "storage"
+    test-type: "performance"
+spec:
+  # 必填配置项
+  filePath: "/data/fio-test-file"          # 测试文件路径
+  readWrite: "randrw"                      # 读写模式：随机读写混合
+  rwmixread: 70                            # 读写比例：70%读，30%写
+  blockSize: "4k"                          # 块大小：4KB
+  ioDepth: 32                              # IO队列深度：32
+  size: "2g"                               # 测试文件大小：2GB
+  ioEngine: "libaio"                       # IO引擎：Linux异步IO
+  numJobs: 4                               # 并行任务数：4
+  
+  # 高级配置项
+  runtime: 120                             # 测试运行时间：120秒
+  directIO: true                           # 使用DirectIO，绕过操作系统缓存
+  groupReporting: true                     # 合并报告所有任务的结果
+  buffered: false                          # 不使用缓冲IO
+  deleteTestFile: true                     # 测试完成后删除测试文件
+  
+  # 错误处理配置
+  retries: 3                               # 失败后最多重试3次
+  retryInterval: 60                        # 重试间隔：60秒
+  
+  # 调度配置
+  schedule: "0 2 * * *"                    # 每天凌晨2点执行
+  suspended: false                         # 测试任务未挂起，可以正常执行
+  timeoutSeconds: 600                      # 测试超时时间：10分钟
+  
+  # 与TestReport关联
+  testReportName: "storage-benchmark-report"
+  
+  # 可选的运行参数
+  extraArgs:
+    - "--verify=crc32c"                    # 添加数据校验
+    - "--verify_only"                      # 仅执行校验，不进行读写测试
+    - "--ioscheduler=deadline"             # 指定IO调度器
+    - "--random_generator=tausworthe64"    # 指定随机数生成器
+    
+  # 资源限制
+  resources:
+    requests:
+      cpu: "2"
+      memory: "1Gi"
+    limits:
+      cpu: "4"
+      memory: "2Gi" 

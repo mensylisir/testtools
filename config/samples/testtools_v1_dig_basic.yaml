@@ -1,0 +1,6 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Dig
+metadata:
+  name: dig-basic
+spec:
+  domain: "baidu.com" 

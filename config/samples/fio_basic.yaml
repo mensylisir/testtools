@@ -1,0 +1,25 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-basic
+spec:
+  # 指定测试文件路径
+  filePath: "/tmp/test-file"
+  # 读写模式: randread, randwrite, read, write
+  readWrite: "randread"
+  # 块大小
+  blockSize: "4k"
+  # IO 深度
+  ioDepth: 16
+  # 测试文件大小
+  size: "100m"
+  # IO 引擎
+  ioEngine: "libaio"
+  # 并行 job 数量
+  numJobs: 1
+  # 运行时间(秒)
+  runtime: 10
+  # 直接 IO (绕过操作系统缓存)
+  directIO: true
+  # 指定镜像
+  image: "registry.dev.rdev.tech:18093/testtools-fio:v1" 

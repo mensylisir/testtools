@@ -113,6 +113,11 @@ type DigSpec struct {
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=10
 	Concurrency int32 `json:"concurrency,omitempty"`
+
+	// Image specifies the container image used to run the Dig test
+	// +optional
+	// +kubebuilder:default="172.30.1.13:18093/testtools-dig:v1"
+	Image string `json:"image,omitempty"`
 }
 
 // DigStatus defines the observed state of Dig

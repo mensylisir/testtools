@@ -1,0 +1,36 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-advanced
+  labels:
+    app: storage-benchmark
+    tier: production
+spec:
+  # 指定测试文件路径
+  filePath: "/mnt/data/bench-file"
+  # 读写模式: randread, randwrite, read, write, randrw
+  readWrite: "randrw"
+  # 随机读写比例 (读:写 = 70:30)
+  rwmixread: 70
+  # 块大小
+  blockSize: "16k"
+  # IO 深度
+  ioDepth: 32
+  # 测试文件大小
+  size: "1g"
+  # IO 引擎
+  ioEngine: "libaio"
+  # 并行 job 数量
+  numJobs: 4
+  # 运行时间(秒)
+  runtime: 60
+  # 直接 IO (绕过操作系统缓存)
+  directIO: true
+  # 组报告 (合并所有job的结果)
+  groupReporting: true
+  # 测试后是否删除测试文件
+  deleteTestFile: true
+  # 测试报告关联名称
+  testReportName: "storage-performance-report"
+  # 调度规则 - 每天执行一次
+  schedule: "0 0 * * *" 

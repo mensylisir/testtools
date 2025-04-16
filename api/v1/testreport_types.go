@@ -50,6 +50,18 @@ type TestReportSpec struct {
 	// ResourceSelectors defines which resources to collect results from
 	// +optional
 	ResourceSelectors []ResourceSelector `json:"resourceSelectors,omitempty"`
+
+	// AnalyticsConfig配置分析选项
+	// +optional
+	AnalyticsConfig *AnalyticsConfig `json:"analyticsConfig,omitempty"`
+
+	// AlertConfig配置告警规则
+	// +optional
+	AlertConfig *AlertConfig `json:"alertConfig,omitempty"`
+
+	// ExportConfig配置数据导出选项
+	// +optional
+	ExportConfig *ExportConfig `json:"exportConfig,omitempty"`
 }
 
 // ResourceSelector selects resources to include in the test report
@@ -135,6 +147,14 @@ type TestReportStatus struct {
 	// +optional
 	Summary TestSummary `json:"summary,omitempty"`
 
+	// Analytics包含性能分析结果
+	// +optional
+	Analytics *Analytics `json:"analytics,omitempty"`
+
+	// Anomalies包含检测到的异常
+	// +optional
+	Anomalies []Anomaly `json:"anomalies,omitempty"`
+
 	// Conditions represents the latest available observations of the test report's state
 	// +optional
 	// +patchMergeKey=type
@@ -170,6 +190,97 @@ type TestSummary struct {
 	// Additional metrics
 	// +optional
 	Metrics map[string]string `json:"metrics,omitempty"`
+}
+
+// AnalyticsConfig配置分析选项
+type AnalyticsConfig struct {
+	// EnableTrendAnalysis启用趋势分析
+	// +optional
+	EnableTrendAnalysis bool `json:"enableTrendAnalysis,omitempty"`
+
+	// EnableAnomalyDetection启用异常检测
+	// +optional
+	EnableAnomalyDetection bool `json:"enableAnomalyDetection,omitempty"`
+
+	// ComparisonBaseline指定比较基准
+	// +optional
+	ComparisonBaseline string `json:"comparisonBaseline,omitempty"`
+
+	// HistoryLimit设置保留的历史记录数量
+	// +optional
+	// +kubebuilder:default=10
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=100
+	HistoryLimit int `json:"historyLimit,omitempty"`
+}
+
+// AlertConfig配置告警规则
+type AlertConfig struct {
+	// Thresholds设置各指标的告警阈值
+	// +optional
+	Thresholds map[string]float64 `json:"thresholds,omitempty"`
+
+	// AlertChannels设置告警通道
+	// +optional
+	AlertChannels []string `json:"alertChannels,omitempty"`
+
+	// ErrorThreshold设置连续错误阈值
+	// +optional
+	// +kubebuilder:default=3
+	// +kubebuilder:validation:Minimum=1
+	ErrorThreshold int `json:"errorThreshold,omitempty"`
+}
+
+// ExportConfig配置数据导出选项
+type ExportConfig struct {
+	// Format指定导出格式
+	// +optional
+	// +kubebuilder:validation:Enum=json;csv;prometheus
+	Format string `json:"format,omitempty"`
+
+	// Destination指定导出目标
+	// +optional
+	Destination string `json:"destination,omitempty"`
+
+	// Schedule指定导出计划
+	// +optional
+	Schedule string `json:"schedule,omitempty"`
+}
+
+// Analytics 包含性能分析结果
+type Analytics struct {
+	// PerformanceTrend 包含性能趋势分析结果
+	// +optional
+	PerformanceTrend map[string]string `json:"performanceTrend,omitempty"`
+
+	// ChangeRate 包含各指标的变化率
+	// +optional
+	ChangeRate map[string]float64 `json:"changeRate,omitempty"`
+
+	// BaselineComparison 与基准比较的结果
+	// +optional
+	BaselineComparison map[string]float64 `json:"baselineComparison,omitempty"`
+}
+
+// Anomaly 表示检测到的异常
+type Anomaly struct {
+	// 异常指标的名称
+	Metric string `json:"metric"`
+
+	// 异常指标的值
+	Value float64 `json:"value"`
+
+	// 异常检测到的时间
+	DetectionTime metav1.Time `json:"detectionTime"`
+
+	// 异常执行的时间
+	ExecutionTime metav1.Time `json:"executionTime"`
+
+	// 异常的严重程度 (低、中、高)
+	Severity string `json:"severity"`
+
+	// 异常的描述
+	Description string `json:"description"`
 }
 
 // +kubebuilder:object:root=true

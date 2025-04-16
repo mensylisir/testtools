@@ -1,0 +1,53 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-failure-example
+  annotations:
+    description: "演示FIO测试失败处理机制的示例"
+  labels:
+    environment: "test"
+    tier: "storage"
+    test-type: "failure-handling"
+spec:
+  # 基本配置
+  filePath: "/nonexistent/path/file"      # 故意使用不存在的路径来模拟失败
+  readWrite: "randread"                   # 随机读取测试
+  blockSize: "4k"                         # 块大小：4KB
+  ioDepth: 16                             # IO队列深度：16
+  size: "1g"                              # 测试文件大小：1GB
+  ioEngine: "libaio"                      # IO引擎：Linux异步IO
+  numJobs: 2                              # 并行任务数：2
+  
+  # 故障处理配置 - 重要
+  retries: 5                              # 失败后尝试重试5次
+  retryInterval: 30                       # 每次重试间隔30秒
+  timeoutSeconds: 300                     # 测试超时时间：5分钟
+  
+  # 与TestReport关联
+  testReportName: "failure-handling-report"
+  
+  # 运行状态控制
+  suspended: false                        # 不挂起测试，允许执行
+  
+  # 资源限制 - 避免资源不足导致的失败
+  resources:
+    requests:
+      cpu: "1"
+      memory: "512Mi"
+    limits:
+      cpu: "2"
+      memory: "1Gi"
+
+---
+# 展示如何在另一个测试中引用这个失败测试的报告
+apiVersion: testtools.xiaoming.com/v1
+kind: TestReport
+metadata:
+  name: failure-handling-report
+spec:
+  description: "存储性能测试失败报告"
+  resourceSelector:
+    matchLabels:
+      test-type: "failure-handling"
+  historyLimit: 10                        # 保留最近10次测试记录
+  errorThreshold: 5                       # 连续5次失败后发出警告 

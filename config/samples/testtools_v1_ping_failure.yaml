@@ -1,0 +1,25 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Ping
+metadata:
+  name: ping-failure-example
+  labels:
+    app: network-monitoring
+    tier: testing
+spec:
+  # 使用不存在的主机名来模拟失败情况
+  host: "non-existent-host-12345.example.invalid"
+  
+  # 只发送3个包，以便快速失败
+  count: 3
+  
+  # 设置较短的超时
+  timeout: 2
+  
+  # 执行间隔（秒）
+  interval: 1
+  
+  # 最多重试2次
+  maxRetries: 2
+  
+  # 每10秒执行一次测试
+  schedule: "10" 

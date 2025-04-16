@@ -1,0 +1,30 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-error-case
+  labels:
+    app: storage-benchmark
+    tier: testing
+spec:
+  # 指定一个可能不存在或无权限的目录
+  filePath: "/nonexistent/directory/test-file"
+  # 读写模式
+  readWrite: "randread"
+  # 块大小
+  blockSize: "4k"
+  # IO 深度
+  ioDepth: 8
+  # 测试文件大小
+  size: "50m"
+  # IO 引擎
+  ioEngine: "libaio"
+  # 并行 job 数量
+  numJobs: 1
+  # 运行时间(秒)
+  runtime: 5
+  # 直接 IO (绕过操作系统缓存)
+  directIO: true
+  # 最大重试次数
+  maxRetries: 2
+  # 指定镜像
+  image: "registry.dev.rdev.tech:18093/testtools-fio:v1" 

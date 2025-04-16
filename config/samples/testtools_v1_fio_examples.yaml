@@ -1,0 +1,113 @@
+---
+# 基础随机读测试
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-randread-basic
+spec:
+  filePath: "/data/fio-randread-test"
+  readWrite: "randread"
+  blockSize: "4k"
+  ioDepth: 32
+  size: "1g"
+  ioEngine: "libaio"
+  numJobs: 4
+  testReportName: "fio-randread-report"
+  deleteTestFile: true
+---
+# 随机读写混合测试，对数据库负载模拟
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-database-workload
+  labels:
+    workload: "database"
+    tier: "prod"
+spec:
+  filePath: "/data/fio-db-test"
+  readWrite: "randrw"
+  rwmixread: 80  # 80% 读操作, 20% 写操作
+  blockSize: "8k"
+  ioDepth: 64
+  size: "10g"
+  ioEngine: "libaio"
+  numJobs: 16
+  direct: 1
+  groupReporting: true
+  testReportName: "fio-database-workload-report"
+  additionalOptions:
+    - "random_distribution=pareto"
+    - "latency_target=10ms"
+    - "latency_window=1000"
+    - "latency_percentile=99.9"
+  resources:
+    requests:
+      cpu: "500m"
+      memory: "256Mi"
+    limits:
+      cpu: "2"
+      memory: "1Gi"
+---
+# 定时执行的顺序写测试
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-sequential-write-scheduled
+  labels:
+    schedule: "daily"
+spec:
+  filePath: "/data/fio-seqwrite-test"
+  readWrite: "write"
+  blockSize: "1m"
+  ioDepth: 8
+  size: "5g"
+  ioEngine: "libaio"
+  numJobs: 2
+  testReportName: "fio-seqwrite-report"
+  schedule: "0 0 * * *"  # 每天午夜执行
+  timeoutSeconds: 1800  # 30分钟超时
+  groupReporting: true
+  buffered: 1
+---
+# 错误处理测试示例
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-error-handling-example
+spec:
+  filePath: "/non-existent-path/fio-test"  # 故意使用不存在的路径
+  readWrite: "read"
+  blockSize: "4k"
+  ioDepth: 16
+  size: "1g"
+  ioEngine: "libaio"
+  numJobs: 1
+  testReportName: "fio-error-report"
+  retries: 3  # 重试3次
+  retryInterval: 60  # 每60秒重试一次
+  timeoutSeconds: 300  # 5分钟超时
+---
+# 存储持久性测试
+apiVersion: testtools.xiaoming.com/v1
+kind: Fio
+metadata:
+  name: fio-durability-test
+  labels:
+    test: "durability"
+spec:
+  filePath: "/data/fio-durability-test"
+  readWrite: "write"
+  blockSize: "4k"
+  ioDepth: 1
+  size: "1g"
+  ioEngine: "sync"  # 使用同步写入
+  numJobs: 1
+  testReportName: "fio-durability-report"
+  fsync: 1  # 在每次写操作后执行fsync
+  end_fsync: 1  # 在测试结束时执行fsync
+  direct: 1
+  additionalOptions:
+    - "verify=md5"
+    - "verify_backlog=64"
+    - "verify_async=4"
+  timeoutSeconds: 3600  # 1小时超时 

@@ -4,80 +4,55 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - pods
+  - pods/log
+  - jobs
+  - services
+  - events
+  - configmaps
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - testtools.xiaoming.com
   resources:
   - digs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - testtools.xiaoming.com
-  resources:
-  - digs/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - testtools.xiaoming.com
-  resources:
   - digs/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - testtools.xiaoming.com
-  resources:
+  - digs/finalizers
+  - fios
+  - fios/status
+  - fios/finalizers
   - pings
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - testtools.xiaoming.com
-  resources:
-  - pings/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - testtools.xiaoming.com
-  resources:
   - pings/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - testtools.xiaoming.com
-  resources:
+  - pings/finalizers
   - testreports
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - testtools.xiaoming.com
-  resources:
+  - testreports/status
   - testreports/finalizers
   verbs:
-  - update
-- apiGroups:
-  - testtools.xiaoming.com
-  resources:
-  - testreports/status
-  verbs:
+  - create
+  - delete
   - get
+  - list
   - patch
-  - update 
+  - update
+  - watch 
