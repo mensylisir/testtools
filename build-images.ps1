@@ -20,7 +20,7 @@ docker push "${REGISTRY}/testtools-ping:${VERSION}"
 
 # 构建并推送控制器镜像
 Write-Host "构建控制器镜像..."
-docker build -t "${REGISTRY}/testtools-controller:v44" .
-docker push "${REGISTRY}/testtools-controller:v44"
+docker build -t "${REGISTRY}/testtools-controller:v53" .
+docker push "${REGISTRY}/testtools-controller:v53"
 
 Write-Host "所有镜像已构建并推送完成" 

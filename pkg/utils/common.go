@@ -357,3 +357,55 @@ func WaitForJob(ctx context.Context, k8sClient client.Client, namespace, name st
 
 	return fmt.Errorf("timeout waiting for job: %s/%s", namespace, name)
 }
+
+// UpdateWithRetry 使用乐观锁重试机制更新资源
+// 它会在遇到冲突时重试更新操作，最多重试maxRetries次
+func UpdateWithRetry(ctx context.Context, c client.Client, obj client.Object, updateFn func(), maxRetries int) error {
+	logger := log.FromContext(ctx)
+	if maxRetries <= 0 {
+		maxRetries = 5 // 默认最多重试5次
+	}
+
+	retryDelay := 200 * time.Millisecond
+
+	for i := 0; i < maxRetries; i++ {
+		// 保存资源的当前版本
+		key := types.NamespacedName{
+			Namespace: obj.GetNamespace(),
+			Name:      obj.GetName(),
+		}
+
+		// 只有在重试时才重新获取对象
+		if i > 0 {
+			if err := c.Get(ctx, key, obj); err != nil {
+				return fmt.Errorf("获取资源失败: %w", err)
+			}
+			logger.V(1).Info("重试更新资源", "资源", key, "尝试", i+1, "最大重试次数", maxRetries)
+		}
+
+		// 应用更新函数
+		updateFn()
+
+		// 尝试更新
+		err := c.Status().Update(ctx, obj)
+		if err == nil {
+			// 更新成功
+			logger.V(1).Info("成功更新资源", "资源", key, "尝试次数", i+1)
+			return nil
+		}
+
+		// 检查是否是冲突错误
+		if !errors.IsConflict(err) {
+			// 非冲突错误，直接返回
+			logger.Error(err, "更新资源时发生非冲突错误", "资源", key)
+			return fmt.Errorf("更新资源时发生错误: %w", err)
+		}
+
+		// 发生冲突，等待后重试
+		retryTime := retryDelay * time.Duration(1<<uint(i))
+		logger.V(1).Info("更新发生冲突，将重试", "资源", key, "重试次数", i+1, "等待时间", retryTime)
+		time.Sleep(retryTime)
+	}
+
+	return fmt.Errorf("经过%d次尝试后仍无法更新资源", maxRetries)
+}

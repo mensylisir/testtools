@@ -34,6 +34,8 @@ import (
 
 	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
 	"github.com/xiaoming/testtools/pkg/utils"
+	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // PingReconciler reconciles a Ping object
@@ -50,80 +52,81 @@ type PingReconciler struct {
 // move the current state of the cluster closer to the desired state.
 func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	// 降级为调试日志
-	logger.V(1).Info("Reconciling Ping", "namespace", req.Namespace, "name", req.Name)
+	logger.Info("开始Ping调谐", "namespacedName", req.NamespacedName)
 
-	// 第1步：获取最新的 Ping 资源
+	// 记录执行时间
+	start := time.Now()
+	defer func() {
+		logger.Info("完成Ping调谐", "namespacedName", req.NamespacedName, "duration", time.Since(start))
+	}()
+
+	// 获取Ping实例
 	var ping testtoolsv1.Ping
 	if err := r.Get(ctx, req.NamespacedName, &ping); err != nil {
-		// 忽略未找到的错误，因为它们不能通过即时重新排队来修复
-		// (我们需要等待新的通知)
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	// 检查是否已经执行完成，避免重复执行
-	// 检查是否已存在完成状态的条件
-	for _, condition := range ping.Status.Conditions {
-		if condition.Type == "Completed" && condition.Status == metav1.ConditionTrue {
-			logger.Info("Ping测试已经完成，不再重复执行",
-				"ping", ping.Name,
-				"namespace", ping.Namespace)
+		if apierrors.IsNotFound(err) {
+			// Ping资源已被删除，忽略
+			logger.Info("Ping资源已被删除，忽略", "namespacedName", req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
+		logger.Error(err, "获取Ping资源失败", "namespacedName", req.NamespacedName)
+		return ctrl.Result{}, err
 	}
 
-	// 添加严格的节流机制，如果上次执行时间太近，直接延迟处理
-	// 检查是否有最后执行时间，避免频繁执行
-	if ping.Status.LastExecutionTime != nil && ping.Spec.Schedule != "" {
-		// 只有在明确设置了Schedule字段时才应用定期执行逻辑
-		interval := 60 // 默认60秒
-		if ping.Spec.Schedule != "" {
-			if intervalValue, err := strconv.Atoi(ping.Spec.Schedule); err == nil && intervalValue > 0 {
-				interval = intervalValue
+	// 检查是否需要执行测试
+	shouldExecute := false
+
+	// 检查是否设置了调度规则
+	if ping.Spec.Schedule != "" {
+		// 如果有上次执行时间，检查是否到了下次执行时间
+		if ping.Status.LastExecutionTime != nil {
+			// 计算下次执行时间
+			intervalSeconds := 60 // 默认60秒
+			if scheduleValue, err := strconv.Atoi(ping.Spec.Schedule); err == nil && scheduleValue > 0 {
+				intervalSeconds = scheduleValue
 			}
-		}
 
-		// 计算距离上次执行的时间
-		elapsed := time.Since(ping.Status.LastExecutionTime.Time).Seconds()
-		remainingTime := float64(interval) - elapsed
+			nextExecutionTime := ping.Status.LastExecutionTime.Time.Add(time.Duration(intervalSeconds) * time.Second)
+			shouldExecute = time.Now().After(nextExecutionTime)
 
-		// 如果距离上次执行的时间小于间隔的80%，则延迟处理
-		if remainingTime > float64(interval)*0.2 {
-			// 计算下一次执行的时间
-			nextRunDelay := time.Duration(remainingTime) * time.Second
-			logger.V(1).Info("Too soon to execute again, scheduling future reconcile",
-				"ping", ping.Name,
-				"namespace", ping.Namespace,
-				"elapsed", elapsed,
-				"interval", interval,
-				"nextRunIn", nextRunDelay)
-			return ctrl.Result{RequeueAfter: nextRunDelay}, nil
+			if !shouldExecute {
+				logger.Info("还未到调度时间，跳过执行",
+					"ping", ping.Name,
+					"上次执行", ping.Status.LastExecutionTime.Time,
+					"下次执行", nextExecutionTime,
+					"当前时间", time.Now())
+				// 计算下次执行的延迟时间
+				delay := time.Until(nextExecutionTime)
+				if delay < 0 {
+					delay = time.Second * 5 // 如果计算出的延迟为负，设置一个短暂的重试时间
+				}
+				return ctrl.Result{RequeueAfter: delay}, nil
+			}
+		} else {
+			// 没有上次执行时间，应该立即执行
+			shouldExecute = true
 		}
+	} else {
+		// 没有设置调度规则，只有在初始创建或者状态为空时执行一次
+		shouldExecute = ping.Status.LastExecutionTime == nil
 	}
 
-	// 确保 TestReportName 字段存在，这样 TestReportController 可以找到关联的 Ping 资源
-	// 注意：TestReport 的创建和更新已移至 TestReportController
-	if ping.Status.TestReportName == "" {
-		pingCopy := ping.DeepCopy()
-		pingCopy.Status.TestReportName = fmt.Sprintf("ping-%s-report", ping.Name)
-
-		if err := r.Status().Update(ctx, pingCopy); err != nil {
-			logger.Error(err, "Failed to update Ping status with TestReportName")
-			return ctrl.Result{RequeueAfter: time.Second * 5}, err
-		}
-
-		// 重新获取最新的 Ping 对象，以确保使用最新状态
-		if err := r.Get(ctx, req.NamespacedName, &ping); err != nil {
-			logger.Error(err, "Failed to refresh Ping resource after updating TestReportName")
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
+	if !shouldExecute {
+		logger.Info("无需执行Ping测试",
+			"ping", ping.Name,
+			"lastExecutionTime", ping.Status.LastExecutionTime,
+			"schedule", ping.Spec.Schedule)
+		return ctrl.Result{}, nil
 	}
 
 	// 更新状态，记录开始时间
 	pingCopy := ping.DeepCopy()
 	now := metav1.NewTime(time.Now())
 	pingCopy.Status.LastExecutionTime = &now
-	pingCopy.Status.QueryCount++
+	// 在这里设置执行标记，但仅在首次执行时增加QueryCount
+	if ping.Status.QueryCount == 0 {
+		// 如果是首次执行，设置查询计数为1
+		pingCopy.Status.QueryCount = 1
+	}
 
 	// 准备 Job 执行 Ping 测试
 	jobName, err := utils.PreparePingJob(ctx, r.Client, &ping)
@@ -149,6 +152,11 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 		return ctrl.Result{RequeueAfter: time.Second * 30}, err
 	}
+
+	// 构建并保存执行的命令
+	pingArgs := utils.BuildPingArgs(&ping)
+	pingCopy.Status.ExecutedCommand = fmt.Sprintf("ping %s", strings.Join(pingArgs, " "))
+	logger.Info("Setting executed command", "command", pingCopy.Status.ExecutedCommand)
 
 	// 等待 Job 完成
 	logger.Info("Waiting for Ping job to complete", "jobName", jobName)
@@ -195,20 +203,35 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	} else {
 		// 解析 Ping 输出并更新状态
 		pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
-
-		// 提取统计数据
+		// 提取Ping统计数据
 		pingStats := utils.ExtractPingStats(pingOutput)
 
 		// 更新状态信息
 		pingCopy.Status.Status = "Succeeded"
-		pingCopy.Status.SuccessCount++
+		if ping.Spec.Schedule == "" {
+			pingCopy.Status.SuccessCount = 1
+		} else {
+			pingCopy.Status.SuccessCount++
+		}
 		pingCopy.Status.LastResult = jobOutput
 
-		// 更新Ping统计数据
+		// 更新网络指标 - 确保所有字段都被设置
 		pingCopy.Status.PacketLoss = pingStats.PacketLoss
 		pingCopy.Status.MinRtt = pingStats.MinRtt
 		pingCopy.Status.AvgRtt = pingStats.AvgRtt
 		pingCopy.Status.MaxRtt = pingStats.MaxRtt
+
+		// 确保所有重要字段都被设置
+		if pingCopy.Status.QueryCount == 0 {
+			pingCopy.Status.QueryCount = 1
+		}
+
+		// 记录数据详情
+		logger.Info("重试时更新Ping状态数据",
+			"packetLoss", pingCopy.Status.PacketLoss,
+			"minRtt", pingCopy.Status.MinRtt,
+			"avgRtt", pingCopy.Status.AvgRtt,
+			"maxRtt", pingCopy.Status.MaxRtt)
 
 		// 标记测试已完成
 		utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
@@ -221,9 +244,109 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	}
 
 	// 更新状态
-	if updateErr := r.Status().Update(ctx, pingCopy); updateErr != nil {
-		logger.Error(updateErr, "Failed to update Ping status")
-		return ctrl.Result{RequeueAfter: time.Second * 5}, updateErr
+	maxUpdateRetries := 5
+	updateRetryDelay := 200 * time.Millisecond
+
+	for i := 0; i < maxUpdateRetries; i++ {
+		// 如果不是首次尝试，重新获取对象和重新应用更改
+		if i > 0 {
+			// 重新获取最新的Ping对象
+			if err := r.Get(ctx, req.NamespacedName, &ping); err != nil {
+				logger.Error(err, "Failed to re-fetch Ping for status update retry", "attempt", i+1)
+				if errors.IsNotFound(err) {
+					return ctrl.Result{}, nil
+				}
+				return ctrl.Result{}, err
+			}
+
+			// 重新创建更新对象
+			pingCopy = ping.DeepCopy()
+			pingCopy.Status.LastExecutionTime = &now
+			pingCopy.Status.ExecutedCommand = fmt.Sprintf("ping %s", strings.Join(pingArgs, " "))
+
+			// 如果是首次执行（QueryCount为0），设置为1
+			if ping.Status.QueryCount == 0 {
+				pingCopy.Status.QueryCount = 1
+			}
+
+			// 重新应用所有状态更改
+			if jobOutput != "" {
+				// 解析 Ping 输出并更新状态
+				pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
+				// 提取Ping统计数据
+				pingStats := utils.ExtractPingStats(pingOutput)
+
+				// 更新状态信息
+				pingCopy.Status.Status = "Succeeded"
+				if ping.Spec.Schedule == "" {
+					pingCopy.Status.SuccessCount = 1
+				} else {
+					pingCopy.Status.SuccessCount++
+				}
+				pingCopy.Status.LastResult = jobOutput
+
+				// 更新网络指标 - 确保所有字段都被设置
+				pingCopy.Status.PacketLoss = pingStats.PacketLoss
+				pingCopy.Status.MinRtt = pingStats.MinRtt
+				pingCopy.Status.AvgRtt = pingStats.AvgRtt
+				pingCopy.Status.MaxRtt = pingStats.MaxRtt
+
+				// 确保所有重要字段都被设置
+				if pingCopy.Status.QueryCount == 0 {
+					pingCopy.Status.QueryCount = 1
+				}
+
+				// 记录数据详情
+				logger.Info("重试时更新Ping状态数据",
+					"packetLoss", pingCopy.Status.PacketLoss,
+					"minRtt", pingCopy.Status.MinRtt,
+					"avgRtt", pingCopy.Status.AvgRtt,
+					"maxRtt", pingCopy.Status.MaxRtt)
+
+				// 标记测试已完成
+				utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
+					Type:               "Completed",
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: now,
+					Reason:             "TestCompleted",
+					Message:            "Ping测试已成功完成",
+				})
+			} else {
+				// 错误状态更新
+				pingCopy.Status.Status = "Failed"
+				pingCopy.Status.FailureCount = ping.Status.FailureCount + 1
+
+				// 标记失败状态
+				utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
+					Type:               "Failed",
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: now,
+					Reason:             "ResultRetrievalFailed",
+					Message:            "无法获取Ping测试结果",
+				})
+			}
+
+			logger.Info("Retrying Ping status update", "attempt", i+1, "maxRetries", maxUpdateRetries)
+		}
+
+		if updateErr := r.Status().Update(ctx, pingCopy); updateErr != nil {
+			if apierrors.IsConflict(updateErr) {
+				logger.Info("Conflict when updating Ping status, will retry",
+					"attempt", i+1,
+					"maxRetries", maxUpdateRetries)
+				if i < maxUpdateRetries-1 {
+					time.Sleep(updateRetryDelay)
+					updateRetryDelay *= 2 // 指数退避
+					continue
+				}
+			}
+			logger.Error(updateErr, "Failed to update Ping status")
+			return ctrl.Result{RequeueAfter: time.Second * 5}, updateErr
+		} else {
+			// 成功更新，退出循环
+			logger.Info("Successfully updated Ping status")
+			break
+		}
 	}
 
 	// 只有在明确设置了Schedule字段时才安排下一次执行

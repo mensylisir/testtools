@@ -114,6 +114,10 @@ type PingStatus struct {
 	// +optional
 	LastResult string `json:"lastResult,omitempty"`
 
+	// ExecutedCommand is the command that was executed for debug purposes
+	// +optional
+	ExecutedCommand string `json:"executedCommand,omitempty"`
+
 	// SuccessCount is the number of successful pings
 	// +optional
 	SuccessCount int64 `json:"successCount,omitempty"`

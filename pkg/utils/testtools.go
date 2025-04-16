@@ -9,15 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
 	batchv1 "k8s.io/api/batch/v1"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
+	corev1 "k8s.io/api/core/v1"
 )
 
 // FioOutput represents the structure of fio JSON output
@@ -84,140 +86,114 @@ type PingOutput struct {
 	SuccessfulPings []float64 `json:"successfulPings"` // 所有成功的ping往返时间
 }
 
-// PrepareFioJob 为 FIO 测试创建一个 Kubernetes Job
-func PrepareFioJob(ctx context.Context, c client.Client, fio *testtoolsv1.Fio) (string, error) {
+// PrepareFioJob 准备运行fio的Job
+func PrepareFioJob(ctx context.Context, fio *testtoolsv1.Fio, client client.Client, scheme *runtime.Scheme) (*batchv1.Job, error) {
 	logger := log.FromContext(ctx)
+	// 使用一致的命名规则，包含UID以确保唯一性
+	jobName := fmt.Sprintf("fio-%s-%s", fio.Name, string(fio.UID)[:8])
+	var job batchv1.Job
 
-	// 修复: 避免重复的"-job"后缀
-	// 使用不带后缀的基本名称
-	baseName := fmt.Sprintf("fio-%s", fio.Name)
-	// 完整的作业名称
-	jobName := fmt.Sprintf("%s-job", baseName)
+	// 检查job是否已经存在
+	err := client.Get(ctx, types.NamespacedName{
+		Namespace: fio.Namespace,
+		Name:      jobName,
+	}, &job)
 
-	// 检查是否已存在同名作业
-	existingJob := &batchv1.Job{}
-	err := c.Get(ctx, types.NamespacedName{Namespace: fio.Namespace, Name: jobName}, existingJob)
+	// 如果job已经存在并且未完成，则返回它
 	if err == nil {
-		// 已存在同名作业，需要处理冲突
-		logger.Info("发现已存在的FIO作业", "jobName", jobName, "status", existingJob.Status)
+		// 检查job是否已经完成
+		logger.Info("检查现有Job状态", "jobName", jobName, "status", fmt.Sprintf("succeeded: %d, failed: %d", job.Status.Succeeded, job.Status.Failed))
 
-		// 检查作业状态
-		var completed bool
-		var failed bool
-
-		for _, condition := range existingJob.Status.Conditions {
-			if condition.Type == batchv1.JobComplete && condition.Status == v1.ConditionTrue {
-				completed = true
-			}
-			if condition.Type == batchv1.JobFailed && condition.Status == v1.ConditionTrue {
-				failed = true
-			}
-		}
-
-		// 如果作业已完成或失败，尝试删除它
-		if completed || failed {
-			logger.Info("作业已经完成或失败，将删除它", "jobName", jobName, "completed", completed, "failed", failed)
-
-			// 使用 DeletePropagationForeground 确保作业及其相关资源被完全删除
-			deletePolicy := metav1.DeletePropagationForeground
-			deleteOptions := &client.DeleteOptions{
-				PropagationPolicy: &deletePolicy,
-			}
-
-			if err := c.Delete(ctx, existingJob, deleteOptions); err != nil {
-				logger.Error(err, "删除已存在的作业失败", "jobName", jobName)
-				return "", fmt.Errorf("删除已存在的作业失败: %w", err)
-			}
-
-			// 等待作业被删除
-			logger.Info("等待作业被删除", "jobName", jobName)
-			time.Sleep(5 * time.Second)
-
-			// 再次检查作业是否已被删除
-			err = c.Get(ctx, types.NamespacedName{Namespace: fio.Namespace, Name: jobName}, &batchv1.Job{})
-			if err == nil {
-				// 作业仍然存在，尝试强制删除
-				logger.Info("作业仍然存在，尝试强制删除", "jobName", jobName)
-
-				// 强制删除所有相关的 Pod
-				podList := &v1.PodList{}
-				if err := c.List(ctx, podList, client.InNamespace(fio.Namespace), client.MatchingLabels{"job-name": jobName}); err != nil {
-					logger.Error(err, "获取作业相关的 Pod 列表失败")
-				} else {
-					for _, pod := range podList.Items {
-						logger.Info("强制删除 Pod", "podName", pod.Name)
-						var zeroGracePeriod int64 = 0
-						if err := c.Delete(ctx, &pod, &client.DeleteOptions{
-							GracePeriodSeconds: &zeroGracePeriod,
-							PropagationPolicy:  &deletePolicy,
-						}); err != nil {
-							logger.Error(err, "强制删除 Pod 失败", "podName", pod.Name)
-						}
+		if job.Status.Succeeded > 0 || job.Status.Failed > 0 {
+			// 只有当配置为不保留Pod时才删除job
+			if !fio.Spec.RetainJobPods {
+				logger.Info("Job已完成，正在删除", "jobName", jobName, "namespace", fio.Namespace)
+				// 删除已经完成的job
+				err = client.Delete(ctx, &job)
+				if err != nil {
+					if !errors.IsNotFound(err) {
+						logger.Error(err, "删除已完成的Job失败", "jobName", jobName, "namespace", fio.Namespace)
+						return nil, err
 					}
+					// 已被删除，继续创建新Job
 				}
-
-				// 再次尝试删除作业
-				var zeroGracePeriod int64 = 0
-				if err := c.Delete(ctx, existingJob, &client.DeleteOptions{
-					GracePeriodSeconds: &zeroGracePeriod,
-					PropagationPolicy:  &deletePolicy,
-				}); err != nil {
-					logger.Error(err, "强制删除作业失败", "jobName", jobName)
-					return "", fmt.Errorf("强制删除作业失败: %w", err)
-				}
-
-				// 再次等待
-				logger.Info("等待强制删除完成", "jobName", jobName)
-				time.Sleep(5 * time.Second)
+				// 等待job被删除
+				time.Sleep(2 * time.Second)
+			} else {
+				logger.Info("Job已完成但保留Pod", "jobName", jobName, "namespace", fio.Namespace)
+				return &job, nil
 			}
 		} else {
-			// 作业仍在运行中，返回作业名称
-			logger.Info("FIO作业仍在运行中", "jobName", jobName)
-			return jobName, nil
+			logger.Info("Job已存在且正在运行", "jobName", jobName, "namespace", fio.Namespace)
+			return &job, nil
 		}
 	} else if !errors.IsNotFound(err) {
-		// 获取作业时发生非 NotFound 错误
-		logger.Error(err, "检查已存在的作业时出错")
-		return "", fmt.Errorf("检查已存在的作业时出错: %w", err)
+		logger.Error(err, "检查Job是否存在时出错", "jobName", jobName, "namespace", fio.Namespace)
+		return nil, err
 	}
 
-	// 获取参数并构建 FIO 命令
-	args := BuildFioArgs(fio)
-
-	// 设置作业标签
-	labels := map[string]string{
-		"app":              "fio",
-		"test-resource":    fio.Name,
-		"test-namespace":   fio.Namespace,
-		"test-type":        "fio",
-		"test-controller":  "true",
-		"test-report-name": fmt.Sprintf("fio-%s-report", fio.Name),
-	}
-
-	// 使用通用函数创建作业 - 传递作业名称时确保没有重复的"-job"后缀
-	_, err = CreateJobForCommand(ctx, c, fio.Namespace, jobName, "fio", args, labels, fio.Spec.Image)
+	// 构建fio命令参数
+	args, err := BuildFioArgs(fio)
 	if err != nil {
-		logger.Error(err, "创建FIO作业失败")
-		return "", err
+		logger.Error(err, "构建fio参数失败", "fio", fio.Name, "namespace", fio.Namespace)
+		return nil, err
 	}
 
-	// 短暂延迟确保Job被创建
-	time.Sleep(2 * time.Second)
-
-	// 验证Job确实已经创建
-	var newJob batchv1.Job
-	err = c.Get(ctx, types.NamespacedName{Namespace: fio.Namespace, Name: jobName}, &newJob)
-	if err != nil {
-		logger.Error(err, "验证新创建的Job失败")
-		return "", fmt.Errorf("创建FIO作业后验证失败: %w", err)
+	// 创建新的job
+	image := "registry.dev.rdev.tech:18093/fio:latest"
+	if fio.Spec.Image != "" {
+		image = fio.Spec.Image
 	}
 
-	logger.Info("成功创建FIO作业", "jobName", jobName, "args", args)
-	return jobName, nil
+	// 创建一个可配置的TTL
+	var ttlSecondsAfterFinished int32 = 86400 // 默认为24小时
+
+	if fio.Spec.RetainJobPods {
+		// 如果设置为保留Pod，使用更长的TTL
+		ttlSecondsAfterFinished = 604800 // 7天
+	}
+
+	job = batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      jobName,
+			Namespace: fio.Namespace,
+		},
+		Spec: batchv1.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					RestartPolicy: corev1.RestartPolicyNever,
+					Containers: []corev1.Container{
+						{
+							Name:    "fio",
+							Image:   image,
+							Command: []string{"fio"},
+							Args:    args,
+						},
+					},
+				},
+			},
+			TTLSecondsAfterFinished: &ttlSecondsAfterFinished,
+		},
+	}
+
+	// 设置所有者引用，确保删除fio时删除job
+	if err := controllerutil.SetControllerReference(fio, &job, scheme); err != nil {
+		logger.Error(err, "设置控制器引用失败", "jobName", jobName, "namespace", fio.Namespace)
+		return nil, err
+	}
+
+	// 创建job
+	logger.Info("创建新的Fio Job", "jobName", jobName, "namespace", fio.Namespace, "args", args)
+	if err = client.Create(ctx, &job); err != nil {
+		logger.Error(err, "创建Job失败", "jobName", jobName, "namespace", fio.Namespace)
+		return nil, err
+	}
+
+	return &job, nil
 }
 
 // BuildFioArgs 构建FIO命令行参数
-func BuildFioArgs(fio *testtoolsv1.Fio) []string {
+func BuildFioArgs(fio *testtoolsv1.Fio) ([]string, error) {
 	args := []string{
 		"--filename=" + fio.Spec.FilePath,
 		"--name=" + fio.Spec.JobName,
@@ -258,7 +234,7 @@ func BuildFioArgs(fio *testtoolsv1.Fio) []string {
 		args = append(args, fmt.Sprintf("--%s=%s", k, v))
 	}
 
-	return args
+	return args, nil
 }
 
 // ParseFioOutput 解析FIO输出并提取性能指标

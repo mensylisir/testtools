@@ -41,7 +41,7 @@ spec:
       containers:
       - command:
         - /manager
-        image: registry.dev.rdev.tech:18093/testtools-controller:v48
+        image: registry.dev.rdev.tech:18093/testtools-controller:v62
         name: manager
         securityContext:
           allowPrivilegeEscalation: true

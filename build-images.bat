@@ -17,7 +17,7 @@ docker build -t %REGISTRY%/testtools-ping:%VERSION% -f Dockerfile.ping .
 docker push %REGISTRY%/testtools-ping:%VERSION%
 
 echo 构建控制器镜像...
-docker build -t %REGISTRY%/testtools-controller:v44 .
-docker push %REGISTRY%/testtools-controller:v44
+docker build -t %REGISTRY%/testtools-controller:v53 .
+docker push %REGISTRY%/testtools-controller:v53
 
 echo 所有镜像已构建并推送完成 

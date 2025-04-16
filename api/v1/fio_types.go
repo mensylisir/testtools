@@ -105,6 +105,10 @@ type FioSpec struct {
 	// +optional
 	// +kubebuilder:default="172.30.1.13:18093/testtools-fio:v1"
 	Image string `json:"image,omitempty"`
+
+	// RetainJobPods controls whether to retain the completed Job and Pods
+	// +kubebuilder:default=false
+	RetainJobPods bool `json:"retainJobPods,omitempty"`
 }
 
 // FioStats contains performance statistics for an FIO test
@@ -156,6 +160,10 @@ type FioStatus struct {
 	// +optional
 	LastResult string `json:"lastResult,omitempty"`
 
+	// ExecutedCommand is the command that was executed for debug purposes
+	// +optional
+	ExecutedCommand string `json:"executedCommand,omitempty"`
+
 	// SuccessCount is the number of successful fio tests
 	// +optional
 	SuccessCount int64 `json:"successCount,omitempty"`
@@ -186,14 +194,15 @@ type FioStatus struct {
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="QueryCount",type="integer",JSONPath=".status.queryCount"
-// +kubebuilder:printcolumn:name="ReadIOPS",type="number",JSONPath=".status.stats.readIOPS"
-// +kubebuilder:printcolumn:name="WriteIOPS",type="number",JSONPath=".status.stats.writeIOPS"
-// +kubebuilder:printcolumn:name="ReadBW",type="number",JSONPath=".status.stats.readBW"
-// +kubebuilder:printcolumn:name="WriteBW",type="number",JSONPath=".status.stats.writeBW"
-// +kubebuilder:printcolumn:name="ReadLat",type="number",JSONPath=".status.stats.readLatency"
-// +kubebuilder:printcolumn:name="WriteLat",type="number",JSONPath=".status.stats.writeLatency"
+// +kubebuilder:printcolumn:name="Succeeded",type="integer",JSONPath=".status.successCount"
+// +kubebuilder:printcolumn:name="Failed",type="integer",JSONPath=".status.failureCount"
+// +kubebuilder:printcolumn:name="ReadIOPS",type="number",JSONPath=".status.stats.readIOPS",priority=1
+// +kubebuilder:printcolumn:name="WriteIOPS",type="number",JSONPath=".status.stats.writeIOPS",priority=1
+// +kubebuilder:printcolumn:name="ReadBW",type="number",JSONPath=".status.stats.readBW",priority=1
+// +kubebuilder:printcolumn:name="WriteBW",type="number",JSONPath=".status.stats.writeBW",priority=1
+// +kubebuilder:printcolumn:name="ReadLat",type="number",JSONPath=".status.stats.readLatency",priority=1
 // +kubebuilder:printcolumn:name="LastRun",type="date",JSONPath=".status.lastExecutionTime"
-// +kubebuilder:printcolumn:name="TestReport",type="string",JSONPath=".status.testReportName",priority=1
+// +kubebuilder:printcolumn:name="TestReport",type="string",JSONPath=".status.testReportName"
 // Fio is the Schema for the fios API
 type Fio struct {
 	metav1.TypeMeta   `json:",inline"`

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +32,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/xiaoming/testtools/pkg/utils"
+	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // DigReconciler reconciles a Dig object
@@ -49,105 +52,81 @@ type DigReconciler struct {
 // move the current state of the cluster closer to the desired state.
 func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.V(1).Info("Reconciling Dig", "namespace", req.Namespace, "name", req.Name)
+	logger.Info("开始Dig调谐", "namespacedName", req.NamespacedName)
 
-	// 1. 获取最新的 Dig 资源
+	// 记录执行时间
+	start := time.Now()
+	defer func() {
+		logger.Info("完成Dig调谐", "namespacedName", req.NamespacedName, "duration", time.Since(start))
+	}()
+
+	// 获取Dig实例
 	var dig testtoolsv1.Dig
 	if err := r.Get(ctx, req.NamespacedName, &dig); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	// 检查是否已经执行完成，避免重复执行
-	// 检查是否已存在完成状态的条件
-	for _, condition := range dig.Status.Conditions {
-		if condition.Type == "Completed" && condition.Status == metav1.ConditionTrue {
-			logger.Info("Dig测试已经完成，不再重复执行",
-				"dig", dig.Name,
-				"namespace", dig.Namespace)
+		if apierrors.IsNotFound(err) {
+			// Dig资源已被删除，忽略
+			logger.Info("Dig资源已被删除，忽略", "namespacedName", req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
+		logger.Error(err, "获取Dig资源失败", "namespacedName", req.NamespacedName)
+		return ctrl.Result{}, err
 	}
 
-	// 添加节流机制，如果上次执行时间太近，直接延迟处理
-	// 检查是否有最后执行时间，避免频繁执行
-	if dig.Status.LastExecutionTime != nil && dig.Spec.Schedule != "" {
-		// 只有在明确设置了Schedule字段时才应用定期执行逻辑
-		interval := 60 // 默认60秒
-		if dig.Spec.Schedule != "" {
-			if intervalValue, err := strconv.Atoi(dig.Spec.Schedule); err == nil && intervalValue > 0 {
-				interval = intervalValue
+	// 检查是否需要执行测试
+	shouldExecute := false
+
+	// 检查是否设置了调度规则
+	if dig.Spec.Schedule != "" {
+		// 如果有上次执行时间，检查是否到了下次执行时间
+		if dig.Status.LastExecutionTime != nil {
+			// 计算下次执行时间
+			intervalSeconds := 60 // 默认60秒
+			if scheduleValue, err := strconv.Atoi(dig.Spec.Schedule); err == nil && scheduleValue > 0 {
+				intervalSeconds = scheduleValue
 			}
-		}
 
-		// 计算距离上次执行的时间
-		elapsed := time.Since(dig.Status.LastExecutionTime.Time).Seconds()
-		remainingTime := float64(interval) - elapsed
+			nextExecutionTime := dig.Status.LastExecutionTime.Time.Add(time.Duration(intervalSeconds) * time.Second)
+			shouldExecute = time.Now().After(nextExecutionTime)
 
-		// 如果距离上次执行的时间小于间隔的80%，则延迟处理
-		if remainingTime > float64(interval)*0.2 {
-			// 计算下一次执行的时间
-			nextRunDelay := time.Duration(remainingTime) * time.Second
-			logger.V(1).Info("Too soon to execute again, scheduling future reconcile",
-				"dig", dig.Name,
-				"namespace", dig.Namespace,
-				"elapsed", elapsed,
-				"interval", interval,
-				"nextRunIn", nextRunDelay)
-			return ctrl.Result{RequeueAfter: nextRunDelay}, nil
+			if !shouldExecute {
+				logger.Info("还未到调度时间，跳过执行",
+					"dig", dig.Name,
+					"上次执行", dig.Status.LastExecutionTime.Time,
+					"下次执行", nextExecutionTime,
+					"当前时间", time.Now())
+				// 计算下次执行的延迟时间
+				delay := time.Until(nextExecutionTime)
+				if delay < 0 {
+					delay = time.Second * 5 // 如果计算出的延迟为负，设置一个短暂的重试时间
+				}
+				return ctrl.Result{RequeueAfter: delay}, nil
+			}
+		} else {
+			// 没有上次执行时间，应该立即执行
+			shouldExecute = true
 		}
+	} else {
+		// 没有设置调度规则，只有在初始创建或者状态为空时执行一次
+		shouldExecute = dig.Status.LastExecutionTime == nil
 	}
 
-	// 确保 TestReportName 字段存在，这样 TestReportController 可以找到关联的 Dig 资源
-	// 注意：TestReport 的创建和更新已移至 TestReportController
-	if dig.Status.TestReportName == "" {
-		digCopy := dig.DeepCopy()
-		digCopy.Status.TestReportName = fmt.Sprintf("dig-%s-report", dig.Name)
-
-		if err := r.Status().Update(ctx, digCopy); err != nil {
-			logger.Error(err, "Failed to update Dig status with TestReportName")
-			return ctrl.Result{RequeueAfter: time.Second * 5}, err
-		}
-
-		// 重新获取最新的 Dig 对象，以确保使用最新状态
-		if err := r.Get(ctx, req.NamespacedName, &dig); err != nil {
-			logger.Error(err, "Failed to refresh Dig resource after updating TestReportName")
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-	}
-
-	// 验证必填字段
-	if dig.Spec.Domain == "" {
-		logger.Error(nil, "Domain is required", "dig", dig.Name, "namespace", dig.Namespace)
-		digCopy := dig.DeepCopy()
-		now := metav1.NewTime(time.Now())
-		digCopy.Status.LastExecutionTime = &now
-		digCopy.Status.QueryCount++
-		digCopy.Status.FailureCount++
-		digCopy.Status.Status = "Failed"
-		digCopy.Status.LastResult = "Domain is required"
-
-		// 添加失败条件
-		utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
-			Type:               "Failed",
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: now,
-			Reason:             "ValidationFailed",
-			Message:            "Dig域名参数验证失败: 域名为必填项",
-		})
-
-		// 更新状态
-		if err := r.Status().Update(ctx, digCopy); err != nil {
-			logger.Error(err, "Failed to update Dig status after validation failure")
-		}
-
-		return ctrl.Result{}, fmt.Errorf("domain is required for dig")
+	if !shouldExecute {
+		logger.Info("无需执行Dig测试",
+			"dig", dig.Name,
+			"lastExecutionTime", dig.Status.LastExecutionTime,
+			"schedule", dig.Spec.Schedule)
+		return ctrl.Result{}, nil
 	}
 
 	// 更新状态，记录开始时间
 	digCopy := dig.DeepCopy()
 	now := metav1.NewTime(time.Now())
 	digCopy.Status.LastExecutionTime = &now
-	digCopy.Status.QueryCount++
+	// 在这里设置执行标记，但仅在首次执行时增加QueryCount
+	if dig.Status.QueryCount == 0 {
+		// 如果是首次执行，设置查询计数为1
+		digCopy.Status.QueryCount = 1
+	}
 
 	// 准备 Job 执行 Dig 测试
 	jobName, err := utils.PrepareDigJob(ctx, r.Client, &dig)
@@ -173,6 +152,11 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 		return ctrl.Result{RequeueAfter: time.Second * 30}, err
 	}
+
+	// 构建并保存执行的命令
+	digArgs := utils.BuildDigArgs(&dig)
+	digCopy.Status.ExecutedCommand = fmt.Sprintf("dig %s", strings.Join(digArgs, " "))
+	logger.Info("Setting executed command", "command", digCopy.Status.ExecutedCommand)
 
 	// 等待 Job 完成
 	logger.Info("Waiting for Dig job to complete", "jobName", jobName)
@@ -222,15 +206,27 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 		// 更新状态信息
 		digCopy.Status.Status = "Succeeded"
-		digCopy.Status.SuccessCount++
+		// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
+		if dig.Spec.Schedule == "" {
+			digCopy.Status.SuccessCount = 1
+		} else {
+			digCopy.Status.SuccessCount++
+		}
 		digCopy.Status.LastResult = jobOutput
 		digCopy.Status.AverageResponseTime = digOutput.QueryTime
 
-		// 注意：移除了之前不匹配的字段赋值
-		// 如果需要保存DNS服务器和状态等数据，应当增加相应的API字段定义
+		// 确保所有重要字段都被设置
+		if digCopy.Status.QueryCount == 0 {
+			digCopy.Status.QueryCount = 1
+		}
 
-		// 如果有IP地址列表，可以将其保存在LastResult或另一个自定义字段中
-		// 这里不再尝试设置不存在的字段
+		// 记录详细数据
+		logger.Info("Dig测试成功完成",
+			"domain", dig.Spec.Domain,
+			"server", digOutput.Server,
+			"status", digOutput.Status,
+			"queryTime", digOutput.QueryTime,
+			"ipAddressCount", len(digOutput.IpAddresses))
 
 		// 标记测试已完成
 		utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
@@ -243,9 +239,104 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	}
 
 	// 更新状态
-	if updateErr := r.Status().Update(ctx, digCopy); updateErr != nil {
-		logger.Error(updateErr, "Failed to update Dig status")
-		return ctrl.Result{RequeueAfter: time.Second * 5}, updateErr
+	maxUpdateRetries := 5
+	updateRetryDelay := 200 * time.Millisecond
+
+	for i := 0; i < maxUpdateRetries; i++ {
+		// 如果不是首次尝试，重新获取对象和重新应用更改
+		if i > 0 {
+			// 重新获取最新的Dig对象
+			if err := r.Get(ctx, req.NamespacedName, &dig); err != nil {
+				logger.Error(err, "Failed to re-fetch Dig for status update retry", "attempt", i+1)
+				if errors.IsNotFound(err) {
+					return ctrl.Result{}, nil
+				}
+				return ctrl.Result{}, err
+			}
+
+			// 重新创建更新对象
+			digCopy = dig.DeepCopy()
+			digCopy.Status.LastExecutionTime = &now
+			digCopy.Status.ExecutedCommand = fmt.Sprintf("dig %s", strings.Join(digArgs, " "))
+
+			// 如果是首次执行（QueryCount为0），设置为1
+			if dig.Status.QueryCount == 0 {
+				digCopy.Status.QueryCount = 1
+			}
+
+			// 重新应用所有状态更改
+			if jobOutput != "" {
+				// 解析 Dig 输出并更新状态
+				digOutput := utils.ParseDigOutput(jobOutput)
+
+				// 更新状态信息
+				digCopy.Status.Status = "Succeeded"
+				// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
+				if dig.Spec.Schedule == "" {
+					digCopy.Status.SuccessCount = 1
+				} else {
+					digCopy.Status.SuccessCount = dig.Status.SuccessCount + 1
+				}
+				digCopy.Status.LastResult = jobOutput
+				digCopy.Status.AverageResponseTime = digOutput.QueryTime
+
+				// 确保所有重要字段都被设置
+				if digCopy.Status.QueryCount == 0 {
+					digCopy.Status.QueryCount = 1
+				}
+
+				// 记录详细数据
+				logger.Info("Dig测试成功完成",
+					"domain", dig.Spec.Domain,
+					"server", digOutput.Server,
+					"status", digOutput.Status,
+					"queryTime", digOutput.QueryTime,
+					"ipAddressCount", len(digOutput.IpAddresses))
+
+				// 标记测试已完成
+				utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
+					Type:               "Completed",
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: now,
+					Reason:             "TestCompleted",
+					Message:            "Dig测试已成功完成",
+				})
+			} else {
+				// 错误状态更新
+				digCopy.Status.Status = "Failed"
+				digCopy.Status.FailureCount = dig.Status.FailureCount + 1
+
+				// 标记失败状态
+				utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
+					Type:               "Failed",
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: now,
+					Reason:             "ResultRetrievalFailed",
+					Message:            "无法获取Dig测试结果",
+				})
+			}
+
+			logger.Info("Retrying Dig status update", "attempt", i+1, "maxRetries", maxUpdateRetries)
+		}
+
+		if updateErr := r.Status().Update(ctx, digCopy); updateErr != nil {
+			if apierrors.IsConflict(updateErr) {
+				logger.Info("Conflict when updating Dig status, will retry",
+					"attempt", i+1,
+					"maxRetries", maxUpdateRetries)
+				if i < maxUpdateRetries-1 {
+					time.Sleep(updateRetryDelay)
+					updateRetryDelay *= 2 // 指数退避
+					continue
+				}
+			}
+			logger.Error(updateErr, "Failed to update Dig status")
+			return ctrl.Result{RequeueAfter: time.Second * 5}, updateErr
+		} else {
+			// 成功更新，退出循环
+			logger.Info("Successfully updated Dig status")
+			break
+		}
 	}
 
 	// 只有在明确设置了Schedule字段时才安排下一次执行
