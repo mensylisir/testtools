@@ -2,7 +2,8 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.13.0
+    controller-gen.kubebuilder.io/version: v0.11.1
+  creationTimestamp: null
   name: fios.testtools.xiaoming.com
 spec:
   group: testtools.xiaoming.com
@@ -13,7 +14,46 @@ spec:
     singular: fio
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .status.status
+      name: Status
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    - jsonPath: .status.queryCount
+      name: QueryCount
+      type: integer
+    - jsonPath: .status.successCount
+      name: Succeeded
+      type: integer
+    - jsonPath: .status.failureCount
+      name: Failed
+      type: integer
+    - jsonPath: .status.stats.readIOPS
+      name: ReadIOPS
+      priority: 1
+      type: number
+    - jsonPath: .status.stats.writeIOPS
+      name: WriteIOPS
+      priority: 1
+      type: number
+    - jsonPath: .status.stats.readBW
+      name: ReadBW
+      priority: 1
+      type: number
+    - jsonPath: .status.stats.writeBW
+      name: WriteBW
+      priority: 1
+      type: number
+    - jsonPath: .status.lastExecutionTime
+      name: LastRun
+      type: date
+    - jsonPath: .status.testReportName
+      name: TestReport
+      priority: 1
+      type: string
+    name: v1
     schema:
       openAPIV3Schema:
         description: Fio is the Schema for the fios API
@@ -100,6 +140,10 @@ spec:
                 - readwrite
                 - randrw
                 type: string
+              retainJobPods:
+                default: false
+                description: RetainJobPods controls whether to retain the completed Job and Pods
+                type: boolean
               runtime:
                 description: Runtime specifies the runtime in seconds
                 maximum: 3600
@@ -168,6 +212,9 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              executedCommand:
+                description: ExecutedCommand is the command that was executed for debug purposes
+                type: string
               failureCount:
                 description: FailureCount is the number of failed fio tests
                 format: int64
@@ -225,4 +272,10 @@ spec:
     served: true
     storage: true
     subresources:
-      status: {} 
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: [] 

@@ -233,18 +233,32 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 			fioCopy.Status.LastResult = jobOutput
 			fioCopy.Status.Stats = fioStats
 
-			// 确保所有重要字段都被设置
+			// 确保所有数据字段都有值，即使为0也要明确设置
 			if fioCopy.Status.QueryCount == 0 {
 				fioCopy.Status.QueryCount = 1
+			}
+
+			// 确保Stats中的字段不为零
+			if fioCopy.Status.Stats.ReadIOPS == 0 && fioStats.ReadIOPS > 0 {
+				fioCopy.Status.Stats.ReadIOPS = fioStats.ReadIOPS
+			}
+			if fioCopy.Status.Stats.WriteIOPS == 0 && fioStats.WriteIOPS > 0 {
+				fioCopy.Status.Stats.WriteIOPS = fioStats.WriteIOPS
+			}
+			if fioCopy.Status.Stats.ReadBW == 0 && fioStats.ReadBW > 0 {
+				fioCopy.Status.Stats.ReadBW = fioStats.ReadBW
+			}
+			if fioCopy.Status.Stats.WriteBW == 0 && fioStats.WriteBW > 0 {
+				fioCopy.Status.Stats.WriteBW = fioStats.WriteBW
 			}
 
 			// 记录详细数据
 			logger.Info("FIO测试成功完成",
 				"filePath", fio.Spec.FilePath,
-				"readIOPS", fioStats.ReadIOPS,
-				"writeIOPS", fioStats.WriteIOPS,
-				"readBW", fioStats.ReadBW,
-				"writeBW", fioStats.WriteBW)
+				"readIOPS", fioCopy.Status.Stats.ReadIOPS,
+				"writeIOPS", fioCopy.Status.Stats.WriteIOPS,
+				"readBW", fioCopy.Status.Stats.ReadBW,
+				"writeBW", fioCopy.Status.Stats.WriteBW)
 
 			// 标记测试已完成
 			utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
@@ -312,18 +326,32 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 					fioCopy.Status.LastResult = jobOutput
 					fioCopy.Status.Stats = fioStats
 
-					// 确保所有重要字段都被设置
+					// 确保所有数据字段都有值，即使为0也要明确设置
 					if fioCopy.Status.QueryCount == 0 {
 						fioCopy.Status.QueryCount = 1
+					}
+
+					// 确保Stats中的字段不为零
+					if fioCopy.Status.Stats.ReadIOPS == 0 && fioStats.ReadIOPS > 0 {
+						fioCopy.Status.Stats.ReadIOPS = fioStats.ReadIOPS
+					}
+					if fioCopy.Status.Stats.WriteIOPS == 0 && fioStats.WriteIOPS > 0 {
+						fioCopy.Status.Stats.WriteIOPS = fioStats.WriteIOPS
+					}
+					if fioCopy.Status.Stats.ReadBW == 0 && fioStats.ReadBW > 0 {
+						fioCopy.Status.Stats.ReadBW = fioStats.ReadBW
+					}
+					if fioCopy.Status.Stats.WriteBW == 0 && fioStats.WriteBW > 0 {
+						fioCopy.Status.Stats.WriteBW = fioStats.WriteBW
 					}
 
 					// 记录重试过程中的详细数据
 					logger.Info("重试时更新FIO状态数据",
 						"filePath", fio.Spec.FilePath,
-						"readIOPS", fioStats.ReadIOPS,
-						"writeIOPS", fioStats.WriteIOPS,
-						"readBW", fioStats.ReadBW,
-						"writeBW", fioStats.WriteBW)
+						"readIOPS", fioCopy.Status.Stats.ReadIOPS,
+						"writeIOPS", fioCopy.Status.Stats.WriteIOPS,
+						"readBW", fioCopy.Status.Stats.ReadBW,
+						"writeBW", fioCopy.Status.Stats.WriteBW)
 
 					// 标记测试已完成
 					utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{

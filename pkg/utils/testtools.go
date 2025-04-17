@@ -153,12 +153,19 @@ func PrepareFioJob(ctx context.Context, fio *testtoolsv1.Fio, client client.Clie
 		ttlSecondsAfterFinished = 604800 // 7天
 	}
 
+	// 设置Job并行度为1，确保只创建一个Pod
+	var parallelism int32 = 1
+	var completions int32 = 1
+
 	job = batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
 			Namespace: fio.Namespace,
 		},
 		Spec: batchv1.JobSpec{
+			// 明确设置并行度和完成数为1，确保只有一个Pod
+			Parallelism: &parallelism,
+			Completions: &completions,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
@@ -775,43 +782,75 @@ func ParsePingOutput(output string, host string) *PingOutput {
 func ParsePingStatistics(output string, pingOutput *PingOutput) {
 	stats := ExtractSection(output, "--- ping statistics ---", "")
 	if stats == "" {
-		return
+		// 尝试其他可能的分割标记
+		stats = ExtractSection(output, "Ping statistics for", "")
+		if stats == "" {
+			return
+		}
 	}
 
 	lines := strings.Split(stats, "\n")
 	for _, line := range lines {
 		// 解析发送/接收/丢失的数据包
-		if strings.Contains(line, "packets transmitted") {
+		if strings.Contains(line, "packets transmitted") || strings.Contains(line, "Packets: Sent") {
+			// Linux/Unix格式: "4 packets transmitted, 4 received, 0% packet loss"
 			fields := strings.Fields(line)
-			if len(fields) >= 10 {
-				if val, err := strconv.Atoi(fields[0]); err == nil {
-					pingOutput.Transmitted = val
+
+			// 查找数据包发送数量
+			for i, field := range fields {
+				if field == "packets" && i > 0 && i < len(fields) {
+					if val, err := strconv.Atoi(fields[i-1]); err == nil {
+						pingOutput.Transmitted = val
+					}
 				}
-				if val, err := strconv.Atoi(fields[3]); err == nil {
-					pingOutput.Received = val
+				if field == "transmitted," && i > 0 && i+2 < len(fields) {
+					if val, err := strconv.Atoi(fields[i+2]); err == nil {
+						pingOutput.Received = val
+					}
 				}
-				// 解析丢包率
-				if strings.Contains(line, "% packet loss") {
-					lossStr := ""
-					for _, field := range fields {
-						if strings.HasSuffix(field, "%") {
-							lossStr = strings.TrimSuffix(field, "%")
-							break
+				if field == "Sent" && i+1 < len(fields) {
+					if valStr := strings.Trim(fields[i+1], " =,"); valStr != "" {
+						if val, err := strconv.Atoi(valStr); err == nil {
+							pingOutput.Transmitted = val
 						}
 					}
-					if val, err := strconv.ParseFloat(lossStr, 64); err == nil {
-						pingOutput.PacketLoss = val
+				}
+				if field == "Received" && i+1 < len(fields) {
+					if valStr := strings.Trim(fields[i+1], " =,"); valStr != "" {
+						if val, err := strconv.Atoi(valStr); err == nil {
+							pingOutput.Received = val
+						}
+					}
+				}
+			}
+
+			// 查找丢包率
+			if strings.Contains(line, "% packet loss") || strings.Contains(line, "Lost") {
+				for i, field := range fields {
+					if strings.HasSuffix(field, "%") {
+						lossStr := strings.TrimSuffix(field, "%")
+						if val, err := strconv.ParseFloat(lossStr, 64); err == nil {
+							pingOutput.PacketLoss = val
+						}
+						break
+					}
+					if field == "Lost" && i+1 < len(fields) {
+						if valStr := strings.Trim(fields[i+1], " =,%()+"); valStr != "" {
+							if val, err := strconv.ParseFloat(valStr, 64); err == nil {
+								pingOutput.PacketLoss = val
+							}
+						}
 					}
 				}
 			}
 		}
 
-		// 解析延迟统计
+		// 解析延迟统计 - Linux格式
 		if strings.Contains(line, "min/avg/max") {
 			parts := strings.Split(line, "=")
 			if len(parts) > 1 {
 				stats := strings.Split(strings.TrimSpace(parts[1]), "/")
-				if len(stats) >= 4 {
+				if len(stats) >= 3 {
 					if val, err := strconv.ParseFloat(stats[0], 64); err == nil {
 						pingOutput.MinRtt = val
 					}
@@ -821,11 +860,78 @@ func ParsePingStatistics(output string, pingOutput *PingOutput) {
 					if val, err := strconv.ParseFloat(stats[2], 64); err == nil {
 						pingOutput.MaxRtt = val
 					}
-					if val, err := strconv.ParseFloat(stats[3], 64); err == nil {
-						pingOutput.StdDevRtt = val
+					if len(stats) >= 4 && stats[3] != "" {
+						if val, err := strconv.ParseFloat(stats[3], 64); err == nil {
+							pingOutput.StdDevRtt = val
+						}
 					}
 				}
 			}
+		}
+
+		// 解析延迟统计 - Windows格式
+		if strings.Contains(line, "Minimum") || strings.Contains(line, "Maximum") || strings.Contains(line, "Average") {
+			fields := strings.Fields(line)
+			for i, field := range fields {
+				if (field == "Minimum" || field == "Minimum:") && i+1 < len(fields) {
+					valStr := strings.Trim(fields[i+1], "ms=")
+					if val, err := strconv.ParseFloat(valStr, 64); err == nil {
+						pingOutput.MinRtt = val
+					}
+				}
+				if (field == "Maximum" || field == "Maximum:") && i+1 < len(fields) {
+					valStr := strings.Trim(fields[i+1], "ms=")
+					if val, err := strconv.ParseFloat(valStr, 64); err == nil {
+						pingOutput.MaxRtt = val
+					}
+				}
+				if (field == "Average" || field == "Average:") && i+1 < len(fields) {
+					valStr := strings.Trim(fields[i+1], "ms=")
+					if val, err := strconv.ParseFloat(valStr, 64); err == nil {
+						pingOutput.AvgRtt = val
+					}
+				}
+			}
+		}
+	}
+
+	// 如果计算不出丢包率，则基于传输和接收的包数计算
+	if pingOutput.PacketLoss == 0 && pingOutput.Transmitted > 0 {
+		if pingOutput.Received < pingOutput.Transmitted {
+			pingOutput.PacketLoss = float64(pingOutput.Transmitted-pingOutput.Received) * 100.0 / float64(pingOutput.Transmitted)
+		} else if pingOutput.Received == pingOutput.Transmitted {
+			pingOutput.PacketLoss = 0.0
+		}
+	}
+
+	// 确保有RTT值 - 如果没有从统计中获取，可以从成功的ping中计算
+	if len(pingOutput.SuccessfulPings) > 0 {
+		if pingOutput.MinRtt == 0 {
+			min := pingOutput.SuccessfulPings[0]
+			for _, v := range pingOutput.SuccessfulPings {
+				if v < min {
+					min = v
+				}
+			}
+			pingOutput.MinRtt = min
+		}
+
+		if pingOutput.MaxRtt == 0 {
+			max := pingOutput.SuccessfulPings[0]
+			for _, v := range pingOutput.SuccessfulPings {
+				if v > max {
+					max = v
+				}
+			}
+			pingOutput.MaxRtt = max
+		}
+
+		if pingOutput.AvgRtt == 0 {
+			sum := 0.0
+			for _, v := range pingOutput.SuccessfulPings {
+				sum += v
+			}
+			pingOutput.AvgRtt = sum / float64(len(pingOutput.SuccessfulPings))
 		}
 	}
 }

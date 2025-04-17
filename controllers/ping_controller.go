@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -203,8 +202,6 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	} else {
 		// 解析 Ping 输出并更新状态
 		pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
-		// 提取Ping统计数据
-		pingStats := utils.ExtractPingStats(pingOutput)
 
 		// 更新状态信息
 		pingCopy.Status.Status = "Succeeded"
@@ -215,19 +212,19 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 		pingCopy.Status.LastResult = jobOutput
 
-		// 更新网络指标 - 确保所有字段都被设置
-		pingCopy.Status.PacketLoss = pingStats.PacketLoss
-		pingCopy.Status.MinRtt = pingStats.MinRtt
-		pingCopy.Status.AvgRtt = pingStats.AvgRtt
-		pingCopy.Status.MaxRtt = pingStats.MaxRtt
+		// 明确设置所有重要字段，确保数据完整 - 即使值为0也要设置
+		pingCopy.Status.PacketLoss = pingOutput.PacketLoss
+		pingCopy.Status.MinRtt = pingOutput.MinRtt
+		pingCopy.Status.AvgRtt = pingOutput.AvgRtt
+		pingCopy.Status.MaxRtt = pingOutput.MaxRtt
 
-		// 确保所有重要字段都被设置
+		// 确保所有重要字段都有值，即使为0也要明确设置
 		if pingCopy.Status.QueryCount == 0 {
 			pingCopy.Status.QueryCount = 1
 		}
 
-		// 记录数据详情
-		logger.Info("重试时更新Ping状态数据",
+		logger.Info("Ping测试结果数据",
+			"host", ping.Spec.Host,
 			"packetLoss", pingCopy.Status.PacketLoss,
 			"minRtt", pingCopy.Status.MinRtt,
 			"avgRtt", pingCopy.Status.AvgRtt,
@@ -273,8 +270,6 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			if jobOutput != "" {
 				// 解析 Ping 输出并更新状态
 				pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
-				// 提取Ping统计数据
-				pingStats := utils.ExtractPingStats(pingOutput)
 
 				// 更新状态信息
 				pingCopy.Status.Status = "Succeeded"
@@ -285,13 +280,13 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				}
 				pingCopy.Status.LastResult = jobOutput
 
-				// 更新网络指标 - 确保所有字段都被设置
-				pingCopy.Status.PacketLoss = pingStats.PacketLoss
-				pingCopy.Status.MinRtt = pingStats.MinRtt
-				pingCopy.Status.AvgRtt = pingStats.AvgRtt
-				pingCopy.Status.MaxRtt = pingStats.MaxRtt
+				// 明确设置所有重要字段，确保数据完整 - 即使值为0也要设置
+				pingCopy.Status.PacketLoss = pingOutput.PacketLoss
+				pingCopy.Status.MinRtt = pingOutput.MinRtt
+				pingCopy.Status.AvgRtt = pingOutput.AvgRtt
+				pingCopy.Status.MaxRtt = pingOutput.MaxRtt
 
-				// 确保所有重要字段都被设置
+				// 确保所有重要字段都有值，即使为0也要明确设置
 				if pingCopy.Status.QueryCount == 0 {
 					pingCopy.Status.QueryCount = 1
 				}
@@ -368,7 +363,7 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
-// executePing 执行 Ping 测试并返回结果
+// executePing执行Ping测试并返回结果
 func (r *PingReconciler) executePing(ctx context.Context, ping *testtoolsv1.Ping) (bool, string, testtoolsv1.PingStatus, error) {
 	logger := log.FromContext(ctx)
 	start := time.Now()
@@ -427,9 +422,9 @@ func (r *PingReconciler) executePing(ctx context.Context, ping *testtoolsv1.Ping
 	// 成功执行
 	output := stdoutStr
 
-	// 解析输出
-	pingOutput := parsePingOutput(output, ping.Spec.Host)
-	stats = extractPingStats(pingOutput)
+	// 使用utils中的ParsePingOutput，而不是本地的parsePingOutput
+	pingOutput := utils.ParsePingOutput(output, ping.Spec.Host)
+	stats = utils.ExtractPingStats(pingOutput)
 
 	logger.Info("Ping command executed successfully",
 		"duration", executionTime.String(),
@@ -437,115 +432,6 @@ func (r *PingReconciler) executePing(ctx context.Context, ping *testtoolsv1.Ping
 		"avgRtt", pingOutput.AvgRtt)
 
 	return true, output, stats, nil
-}
-
-// parsePingOutput 解析 ping 命令的输出，提取结构化数据
-func parsePingOutput(output string, host string) *PingOutput {
-	pingOutput := &PingOutput{
-		Host:            host,
-		SuccessfulPings: []float64{},
-	}
-
-	// 提取统计信息
-
-	// 提取发送和接收的数据包数
-	packetsRegex := regexp.MustCompile(`(\d+) packets transmitted, (\d+) received`)
-	packetsMatches := packetsRegex.FindStringSubmatch(output)
-	if len(packetsMatches) > 2 {
-		if transmitted, err := strconv.Atoi(packetsMatches[1]); err == nil {
-			pingOutput.Transmitted = transmitted
-		}
-		if received, err := strconv.Atoi(packetsMatches[2]); err == nil {
-			pingOutput.Received = received
-		}
-	}
-
-	// 提取丢包率
-	packetLossRegex := regexp.MustCompile(`(\d+)% packet loss`)
-	packetLossMatches := packetLossRegex.FindStringSubmatch(output)
-	if len(packetLossMatches) > 1 {
-		if packetLoss, err := strconv.ParseFloat(packetLossMatches[1], 64); err == nil {
-			pingOutput.PacketLoss = packetLoss
-		}
-	}
-
-	// 提取 RTT 统计信息
-	// 不同平台的输出格式可能不同
-	// Linux: min/avg/max/mdev
-	// Windows: Minimum/Maximum/Average
-	// macOS: min/avg/max/stddev
-
-	// 尝试 Linux/macOS 格式
-	rttRegex := regexp.MustCompile(`min/avg/max(?:/(?:mdev|stddev))? = ([\d.]+)/([\d.]+)/([\d.]+)(?:/([\d.]+))?`)
-	rttMatches := rttRegex.FindStringSubmatch(output)
-	if len(rttMatches) > 3 {
-		if minRtt, err := strconv.ParseFloat(rttMatches[1], 64); err == nil {
-			pingOutput.MinRtt = minRtt
-		}
-		if avgRtt, err := strconv.ParseFloat(rttMatches[2], 64); err == nil {
-			pingOutput.AvgRtt = avgRtt
-		}
-		if maxRtt, err := strconv.ParseFloat(rttMatches[3], 64); err == nil {
-			pingOutput.MaxRtt = maxRtt
-		}
-		if len(rttMatches) > 4 && rttMatches[4] != "" {
-			if stddev, err := strconv.ParseFloat(rttMatches[4], 64); err == nil {
-				pingOutput.StdDevRtt = stddev
-			}
-		}
-	} else {
-		// 尝试 Windows 格式
-		minRegex := regexp.MustCompile(`Minimum = ([\d.]+)ms`)
-		maxRegex := regexp.MustCompile(`Maximum = ([\d.]+)ms`)
-		avgRegex := regexp.MustCompile(`Average = ([\d.]+)ms`)
-
-		minMatches := minRegex.FindStringSubmatch(output)
-		if len(minMatches) > 1 {
-			if minRtt, err := strconv.ParseFloat(minMatches[1], 64); err == nil {
-				pingOutput.MinRtt = minRtt
-			}
-		}
-
-		maxMatches := maxRegex.FindStringSubmatch(output)
-		if len(maxMatches) > 1 {
-			if maxRtt, err := strconv.ParseFloat(maxMatches[1], 64); err == nil {
-				pingOutput.MaxRtt = maxRtt
-			}
-		}
-
-		avgMatches := avgRegex.FindStringSubmatch(output)
-		if len(avgMatches) > 1 {
-			if avgRtt, err := strconv.ParseFloat(avgMatches[1], 64); err == nil {
-				pingOutput.AvgRtt = avgRtt
-			}
-		}
-	}
-
-	// 提取每个成功 ping 的 RTT 值 (可选）
-	timeRegex := regexp.MustCompile(`time=([\d.]+) ms`)
-	timeMatches := timeRegex.FindAllStringSubmatch(output, -1)
-	for _, match := range timeMatches {
-		if len(match) > 1 {
-			if time, err := strconv.ParseFloat(match[1], 64); err == nil {
-				pingOutput.SuccessfulPings = append(pingOutput.SuccessfulPings, time)
-			}
-		}
-	}
-
-	return pingOutput
-}
-
-// extractPingStats 从 PingOutput 提取 Ping 统计信息到 PingStatus
-func extractPingStats(output *PingOutput) testtoolsv1.PingStatus {
-	stats := testtoolsv1.PingStatus{}
-
-	// 复制统计数据到 PingStatus
-	stats.PacketLoss = output.PacketLoss
-	stats.MinRtt = output.MinRtt
-	stats.AvgRtt = output.AvgRtt
-	stats.MaxRtt = output.MaxRtt
-
-	return stats
 }
 
 // buildPingArgs builds the arguments for the ping command
@@ -596,33 +482,6 @@ func (r *PingReconciler) buildPingArgs(ping *testtoolsv1.Ping) []string {
 	args = append(args, ping.Spec.Host)
 
 	return args
-}
-
-// parsePingStatistics parses the ping output to extract statistics
-func parsePingStatistics(output string, status *testtoolsv1.PingStatus) {
-	// Parse packet loss
-	packetLossRegex := regexp.MustCompile(`(\d+)% packet loss`)
-	packetLossMatches := packetLossRegex.FindStringSubmatch(output)
-	if len(packetLossMatches) > 1 {
-		if packetLoss, err := strconv.ParseFloat(packetLossMatches[1], 64); err == nil {
-			status.PacketLoss = packetLoss
-		}
-	}
-
-	// Parse RTT statistics
-	rttRegex := regexp.MustCompile(`min/avg/max(?:/(?:mdev|stddev))? = ([\d.]+)/([\d.]+)/([\d.]+)`)
-	rttMatches := rttRegex.FindStringSubmatch(output)
-	if len(rttMatches) > 3 {
-		if minRtt, err := strconv.ParseFloat(rttMatches[1], 64); err == nil {
-			status.MinRtt = minRtt
-		}
-		if avgRtt, err := strconv.ParseFloat(rttMatches[2], 64); err == nil {
-			status.AvgRtt = avgRtt
-		}
-		if maxRtt, err := strconv.ParseFloat(rttMatches[3], 64); err == nil {
-			status.MaxRtt = maxRtt
-		}
-	}
 }
 
 // getExitCode extracts the exit code from an exec.ExitError
