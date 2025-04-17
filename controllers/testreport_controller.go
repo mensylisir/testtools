@@ -1236,28 +1236,27 @@ func setTestReportCondition(testReport *testtoolsv1.TestReport, condition metav1
 	testReport.Status.Conditions = append(testReport.Status.Conditions, condition)
 }
 
-// findTestReportForResource 查找与资源关联的 TestReport
+// findTestReportForResource 查找与资源相关的TestReport
 func (r *TestReportReconciler) findTestReportForResource(ctx context.Context, obj client.Object) []reconcile.Request {
+	// 获取资源信息
 	logger := log.FromContext(ctx)
+
+	// 直接获取GVK
+	gvk := obj.GetObjectKind().GroupVersionKind()
 
 	// 从object获取metaObject
 	metaObj, ok := obj.(metav1.Object)
 	if !ok {
-		logger.Error(fmt.Errorf("object is not a metav1.Object"), "failed to get metaObject", "object", obj)
+		logger.Error(nil, "object is not a metav1.Object")
 		return nil
 	}
 
-	// 获取资源的名称和类型
 	resourceName := metaObj.GetName()
 	resourceNamespace := metaObj.GetNamespace()
+	resourceKind := gvk.Kind
 
-	// 这里GVK可能为空，需要手动判断资源类型
-	var resourceKind string
-	gvk := obj.GetObjectKind().GroupVersionKind()
-	if gvk.Kind != "" {
-		resourceKind = gvk.Kind
-	} else {
-		// 根据对象类型判断
+	// 如果GVK为空，根据对象类型判断
+	if resourceKind == "" {
 		switch obj.(type) {
 		case *testtoolsv1.Dig:
 			resourceKind = "Dig"
@@ -1266,136 +1265,41 @@ func (r *TestReportReconciler) findTestReportForResource(ctx context.Context, ob
 		case *testtoolsv1.Fio:
 			resourceKind = "Fio"
 		default:
-			logger.Error(fmt.Errorf("unknown resource type"), "无法确定资源类型", "object", obj)
+			logger.Error(fmt.Errorf("unknown resource type"), "无法确定资源类型")
 			return nil
 		}
 	}
 
-	logger.Info("找到资源变更", "kind", resourceKind, "name", resourceName, "namespace", resourceNamespace)
-
-	// 检查资源是否已经有关联的 TestReport
-	var testReportName string
-	var testReportExists bool
-	var resourceStatus string
-
-	// 根据资源类型获取状态
-	switch resourceKind {
-	case "Dig":
-		if dig, ok := obj.(*testtoolsv1.Dig); ok {
-			logger.Info("检查Dig资源状态", "name", dig.Name, "status", dig.Status.Status, "testReportName", dig.Status.TestReportName)
-			testReportName = dig.Status.TestReportName
-			resourceStatus = dig.Status.Status
-		}
-	case "Ping":
-		if ping, ok := obj.(*testtoolsv1.Ping); ok {
-			logger.Info("检查Ping资源状态", "name", ping.Name, "status", ping.Status.Status, "testReportName", ping.Status.TestReportName)
-			testReportName = ping.Status.TestReportName
-			resourceStatus = ping.Status.Status
-		}
-	case "Fio":
-		if fio, ok := obj.(*testtoolsv1.Fio); ok {
-			logger.Info("检查Fio资源状态", "name", fio.Name, "status", fio.Status.Status, "testReportName", fio.Status.TestReportName)
-			testReportName = fio.Status.TestReportName
-			resourceStatus = fio.Status.Status
-		}
-	}
-
-	// 检查 TestReport 是否存在
-	if testReportName != "" {
-		var testReport testtoolsv1.TestReport
-		err := r.Get(ctx, types.NamespacedName{
-			Name:      testReportName,
-			Namespace: resourceNamespace,
-		}, &testReport)
-
-		testReportExists = err == nil
-		if err != nil && !errors.IsNotFound(err) {
-			logger.Error(err, "获取TestReport失败", "name", testReportName)
-		}
-	}
-
-	// 如果资源已完成但没有关联的 TestReport 或 TestReport 不存在，则创建一个新的 TestReport
-	if (resourceStatus == "Succeeded" || resourceStatus == "Failed") && (!testReportExists || testReportName == "") {
-		logger.Info("资源已完成但没有关联的TestReport，将创建新的TestReport",
+	// 判断是否应该创建新的TestReport
+	if r.shouldCreateTestReport(obj) {
+		logger.Info("为资源创建新的TestReport",
 			"kind", resourceKind,
 			"name", resourceName,
-			"status", resourceStatus)
+			"namespace", resourceNamespace)
 
-		// 创建新的TestReport名称
-		newReportName := fmt.Sprintf("%s-%s-report", strings.ToLower(resourceKind), resourceName)
+		// 异步创建TestReport，避免阻塞当前处理
+		go func() {
+			ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Second*10)
+			defer cancel()
 
-		// 创建TestReport
-		testReport := &testtoolsv1.TestReport{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      newReportName,
-				Namespace: resourceNamespace,
-			},
-			Spec: testtoolsv1.TestReportSpec{
-				TestName: newReportName,
-				TestType: getTestTypeFromKind(resourceKind),
-				Target:   getTargetFromResource(obj),
-				ResourceSelectors: []testtoolsv1.ResourceSelector{
-					{
-						APIVersion: "testtools.xiaoming.com/v1",
-						Kind:       resourceKind,
-						Name:       resourceName,
-						Namespace:  resourceNamespace,
-					},
-				},
-			},
-		}
-
-		// 创建TestReport
-		if err := r.Create(ctx, testReport); err != nil {
-			if errors.IsAlreadyExists(err) {
-				logger.Info("TestReport已存在，跳过创建", "name", newReportName)
+			testReport, err := r.createTestReportForResource(ctxTimeout, obj)
+			if err != nil {
+				logger.Error(err, "创建TestReport失败",
+					"kind", resourceKind,
+					"name", resourceName)
 			} else {
-				logger.Error(err, "创建TestReport失败", "name", newReportName)
+				logger.Info("成功创建TestReport",
+					"testReport", testReport.Name,
+					"kind", resourceKind,
+					"name", resourceName)
 			}
-		} else {
-			logger.Info("成功创建TestReport", "name", newReportName)
-
-			// 更新资源的TestReportName
-			switch resourceKind {
-			case "Dig":
-				if err := r.updateDigStatus(ctx, types.NamespacedName{Name: resourceName, Namespace: resourceNamespace}, func(digObj *testtoolsv1.Dig) {
-					digObj.Status.TestReportName = newReportName
-				}); err != nil {
-					logger.Error(err, "更新Dig的TestReportName失败")
-				}
-			case "Ping":
-				if err := r.updatePingStatus(ctx, types.NamespacedName{Name: resourceName, Namespace: resourceNamespace}, func(pingObj *testtoolsv1.Ping) {
-					pingObj.Status.TestReportName = newReportName
-				}); err != nil {
-					logger.Error(err, "更新Ping的TestReportName失败")
-				}
-			case "Fio":
-				if err := r.updateFioStatus(ctx, types.NamespacedName{Name: resourceName, Namespace: resourceNamespace}, func(fioObj *testtoolsv1.Fio) {
-					fioObj.Status.TestReportName = newReportName
-				}); err != nil {
-					logger.Error(err, "更新Fio的TestReportName失败")
-				}
-			}
-
-			testReportName = newReportName
-			testReportExists = true
-		}
+		}()
 	}
 
-	// 如果资源有关联的TestReport，返回该TestReport的请求
-	if testReportName != "" && testReportExists {
-		logger.Info("资源已关联到TestReport", "resourceKind", resourceKind, "resourceName", resourceName, "testReport", testReportName)
-		return []reconcile.Request{
-			{NamespacedName: types.NamespacedName{
-				Name:      testReportName,
-				Namespace: resourceNamespace,
-			}},
-		}
-	}
-
-	// 如果资源没有关联的TestReportName，则查找所有包含该资源的TestReport
+	// 查找引用了该资源的TestReport
 	var testReportList testtoolsv1.TestReportList
-	if err := r.List(ctx, &testReportList, client.InNamespace(resourceNamespace)); err != nil {
+	err := r.List(ctx, &testReportList, client.InNamespace(resourceNamespace))
+	if err != nil {
 		logger.Error(err, "获取TestReport列表失败")
 		return nil
 	}
@@ -1419,37 +1323,6 @@ func (r *TestReportReconciler) findTestReportForResource(ctx context.Context, ob
 						Namespace: report.Namespace,
 					},
 				})
-
-				// 如果资源没有设置TestReportName，则尝试设置
-				switch resourceKind {
-				case "Dig":
-					err := r.updateDigStatus(ctx, types.NamespacedName{Name: resourceName, Namespace: resourceNamespace}, func(digObj *testtoolsv1.Dig) {
-						if digObj.Status.TestReportName == "" {
-							digObj.Status.TestReportName = report.Name
-						}
-					})
-					if err != nil {
-						logger.Error(err, "更新Dig的TestReportName失败")
-					}
-				case "Ping":
-					err := r.updatePingStatus(ctx, types.NamespacedName{Name: resourceName, Namespace: resourceNamespace}, func(pingObj *testtoolsv1.Ping) {
-						if pingObj.Status.TestReportName == "" {
-							pingObj.Status.TestReportName = report.Name
-						}
-					})
-					if err != nil {
-						logger.Error(err, "更新Ping的TestReportName失败")
-					}
-				case "Fio":
-					err := r.updateFioStatus(ctx, types.NamespacedName{Name: resourceName, Namespace: resourceNamespace}, func(fioObj *testtoolsv1.Fio) {
-						if fioObj.Status.TestReportName == "" {
-							fioObj.Status.TestReportName = report.Name
-						}
-					})
-					if err != nil {
-						logger.Error(err, "更新Fio的TestReportName失败")
-					}
-				}
 			}
 		}
 	}
@@ -1474,45 +1347,69 @@ func (r *TestReportReconciler) shouldCreateTestReport(obj client.Object) bool {
 	resourceNamespace := metaObj.GetNamespace()
 	resourceKind := obj.GetObjectKind().GroupVersionKind().Kind
 
+	// 如果GVK为空，根据对象类型判断
+	if resourceKind == "" {
+		switch obj.(type) {
+		case *testtoolsv1.Dig:
+			resourceKind = "Dig"
+		case *testtoolsv1.Ping:
+			resourceKind = "Ping"
+		case *testtoolsv1.Fio:
+			resourceKind = "Fio"
+		default:
+			logger.Error(fmt.Errorf("unknown resource type"), "无法确定资源类型")
+			return false
+		}
+	}
+
 	// 详细记录资源信息
 	logger.Info("判断是否应该为资源创建TestReport",
 		"kind", resourceKind,
 		"name", resourceName,
 		"namespace", resourceNamespace)
 
-	// 检查资源的状态
+	// 检查资源的状态和TestReportName
+	var status string
+	var testReportName string
+
+	// 根据资源类型获取状态和TestReportName
 	switch resourceKind {
 	case "Dig":
 		if dig, ok := obj.(*testtoolsv1.Dig); ok {
-			// 记录详细信息用于排查
+			status = dig.Status.Status
+			testReportName = dig.Status.TestReportName
 			logger.Info("检查Dig状态",
-				"status", dig.Status.Status,
-				"testReportName", dig.Status.TestReportName)
-			// 如果资源没有关联的TestReport，就创建一个
-			return dig.Status.TestReportName == ""
+				"status", status,
+				"testReportName", testReportName)
 		}
 	case "Ping":
 		if ping, ok := obj.(*testtoolsv1.Ping); ok {
-			// 记录详细信息用于排查
+			status = ping.Status.Status
+			testReportName = ping.Status.TestReportName
 			logger.Info("检查Ping状态",
-				"status", ping.Status.Status,
-				"testReportName", ping.Status.TestReportName)
-			// 如果资源没有关联的TestReport，就创建一个
-			return ping.Status.TestReportName == ""
+				"status", status,
+				"testReportName", testReportName)
 		}
 	case "Fio":
 		if fio, ok := obj.(*testtoolsv1.Fio); ok {
-			// 记录详细信息用于排查
+			status = fio.Status.Status
+			testReportName = fio.Status.TestReportName
 			logger.Info("检查Fio状态",
-				"status", fio.Status.Status,
-				"testReportName", fio.Status.TestReportName)
-			// 如果资源没有关联的TestReport，就创建一个
-			return fio.Status.TestReportName == ""
+				"status", status,
+				"testReportName", testReportName)
 		}
 	}
 
-	logger.Info("资源不满足创建TestReport的条件", "kind", resourceKind)
-	return false
+	// 只有当资源状态为Succeeded或Failed，且没有关联TestReport时才创建
+	shouldCreate := (status == "Succeeded" || status == "Failed") && testReportName == ""
+	logger.Info("决定是否创建TestReport",
+		"kind", resourceKind,
+		"name", resourceName,
+		"shouldCreate", shouldCreate,
+		"status", status,
+		"testReportName", testReportName)
+
+	return shouldCreate
 }
 
 // createTestReportForResource 为资源创建新的TestReport
@@ -1568,30 +1465,8 @@ func (r *TestReportReconciler) createTestReportForResource(ctx context.Context, 
 		return nil, err
 	}
 
-	// 更新资源的TestReportName
-	switch resourceKind {
-	case "Dig":
-		err := r.updateDigStatus(ctx, types.NamespacedName{Name: resourceName, Namespace: resourceNamespace}, func(digObj *testtoolsv1.Dig) {
-			digObj.Status.TestReportName = reportName
-		})
-		if err != nil {
-			logger.Error(err, "更新Dig的TestReportName失败")
-		}
-	case "Ping":
-		err := r.updatePingStatus(ctx, types.NamespacedName{Name: resourceName, Namespace: resourceNamespace}, func(pingObj *testtoolsv1.Ping) {
-			pingObj.Status.TestReportName = reportName
-		})
-		if err != nil {
-			logger.Error(err, "更新Ping的TestReportName失败")
-		}
-	case "Fio":
-		err := r.updateFioStatus(ctx, types.NamespacedName{Name: resourceName, Namespace: resourceNamespace}, func(fioObj *testtoolsv1.Fio) {
-			fioObj.Status.TestReportName = reportName
-		})
-		if err != nil {
-			logger.Error(err, "更新Fio的TestReportName失败")
-		}
-	}
+	// 不再主动修改其他资源的状态，遵循Kubernetes Operator最佳实践
+	// 每个资源的控制器应负责更新自己的状态，避免状态冲突
 
 	logger.Info("成功创建TestReport",
 		"testReport", reportName,
