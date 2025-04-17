@@ -601,9 +601,7 @@ func (r *PingReconciler) cleanupResources(ctx context.Context, ping *testtoolsv1
 		}
 	}
 
-	// 不再删除TestReport资源，这应该由TestReport控制器自己管理
-	// TestReport通过其ResourceSelectors引用Ping，当Ping删除时，TestReport控制器会负责清理或更新TestReport
-
+	// 不再需要删除TestReport，因为它们现在有OwnerReference，会随着Ping资源自动删除
 	logger.Info("资源清理完成", "pingName", ping.Name)
 	return nil
 }

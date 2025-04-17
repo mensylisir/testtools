@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/xiaoming/testtools/pkg/utils"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
@@ -416,35 +416,27 @@ func (r *DigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 func (r *DigReconciler) cleanupResources(ctx context.Context, dig *testtoolsv1.Dig) error {
 	logger := log.FromContext(ctx)
 
-	// 查找并清理关联的Job
-	var jobList batchv1.JobList
-	if err := r.List(ctx, &jobList, client.InNamespace(dig.Namespace),
+	// 查找并清理关联的Pod
+	var podList corev1.PodList
+	if err := r.List(ctx, &podList, client.InNamespace(dig.Namespace),
 		client.MatchingLabels{
 			"app.kubernetes.io/created-by": "testtools-controller",
 			"app.kubernetes.io/managed-by": "dig-controller",
-			"app.kubernetes.io/name":       "dig-job",
 			"app.kubernetes.io/instance":   dig.Name,
 		}); err != nil {
-		logger.Error(err, "无法列出关联的Job")
+		logger.Error(err, "无法列出关联的Pod")
 		return err
 	}
 
-	for _, job := range jobList.Items {
-		logger.Info("删除关联的Job", "jobName", job.Name)
-		// 设置删除宽限期为0，立即删除
-		propagationPolicy := metav1.DeletePropagationBackground
-		deleteOptions := client.DeleteOptions{
-			PropagationPolicy: &propagationPolicy,
-		}
-		if err := r.Delete(ctx, &job, &deleteOptions); err != nil && !apierrors.IsNotFound(err) {
-			logger.Error(err, "删除Job失败", "jobName", job.Name)
+	for _, pod := range podList.Items {
+		logger.Info("删除关联的Pod", "podName", pod.Name)
+		if err := r.Delete(ctx, &pod, &client.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+			logger.Error(err, "删除Pod失败", "podName", pod.Name)
 			return err
 		}
 	}
 
-	// 不再删除TestReport资源，这应该由TestReport控制器自己管理
-	// TestReport通过其ResourceSelectors引用Dig，当Dig删除时，TestReport控制器会负责清理或更新TestReport
-
+	// 不再需要删除TestReport，因为它们现在有OwnerReference，会随着Dig资源自动删除
 	logger.Info("资源清理完成", "digName", dig.Name)
 	return nil
 }
