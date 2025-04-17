@@ -160,12 +160,10 @@ type PingStatus struct {
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:printcolumn:name="QueryCount",type="integer",JSONPath=".status.queryCount"
-// +kubebuilder:printcolumn:name="PacketLoss",type="number",JSONPath=".status.packetLoss"
-// +kubebuilder:printcolumn:name="MinRtt",type="number",JSONPath=".status.minRtt"
-// +kubebuilder:printcolumn:name="AvgRtt",type="number",JSONPath=".status.avgRtt"
-// +kubebuilder:printcolumn:name="MaxRtt",type="number",JSONPath=".status.maxRtt"
+// +kubebuilder:printcolumn:name="Succeeded",type="integer",JSONPath=".status.successCount"
+// +kubebuilder:printcolumn:name="Failed",type="integer",JSONPath=".status.failureCount"
 // +kubebuilder:printcolumn:name="LastRun",type="date",JSONPath=".status.lastExecutionTime"
-// +kubebuilder:printcolumn:name="TestReport",type="string",JSONPath=".status.testReportName",priority=1
+// +kubebuilder:printcolumn:name="TestReport",type="string",JSONPath=".status.testReportName"
 // Ping is the Schema for the pings API
 type Ping struct {
 	metav1.TypeMeta   `json:",inline"`

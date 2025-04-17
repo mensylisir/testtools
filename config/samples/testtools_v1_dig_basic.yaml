@@ -3,4 +3,5 @@ kind: Dig
 metadata:
   name: dig-basic
 spec:
-  domain: "baidu.com" 
+  domain: "baidu.com"
+  image: "192.168.31.34:18093/testtools-dig:v1"

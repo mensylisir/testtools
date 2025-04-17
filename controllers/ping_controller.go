@@ -33,6 +33,7 @@ import (
 
 	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
 	"github.com/xiaoming/testtools/pkg/utils"
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
@@ -69,6 +70,40 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		}
 		logger.Error(err, "获取Ping资源失败", "namespacedName", req.NamespacedName)
 		return ctrl.Result{}, err
+	}
+
+	// 添加finalizer处理逻辑
+	pingFinalizer := "testtools.xiaoming.com/ping-finalizer"
+
+	// 检查对象是否正在被删除
+	if ping.ObjectMeta.DeletionTimestamp.IsZero() {
+		// 对象没有被标记为删除，确保它有我们的finalizer
+		if !utils.ContainsString(ping.GetFinalizers(), pingFinalizer) {
+			logger.Info("添加finalizer", "finalizer", pingFinalizer)
+			ping.SetFinalizers(append(ping.GetFinalizers(), pingFinalizer))
+			if err := r.Update(ctx, &ping); err != nil {
+				return ctrl.Result{}, err
+			}
+			// 已更新finalizer，重新触发reconcile
+			return ctrl.Result{}, nil
+		}
+	} else {
+		// 对象正在被删除
+		if utils.ContainsString(ping.GetFinalizers(), pingFinalizer) {
+			// 执行清理操作
+			if err := r.cleanupResources(ctx, &ping); err != nil {
+				logger.Error(err, "清理资源失败")
+				return ctrl.Result{}, err
+			}
+
+			// 清理完成后，移除finalizer
+			ping.SetFinalizers(utils.RemoveString(ping.GetFinalizers(), pingFinalizer))
+			if err := r.Update(ctx, &ping); err != nil {
+				return ctrl.Result{}, err
+			}
+			logger.Info("已移除finalizer，允许资源被删除")
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// 检查是否需要执行测试
@@ -186,10 +221,10 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	// 获取 Job 执行结果
 	jobOutput, err := utils.GetJobResults(ctx, r.Client, ping.Namespace, jobName)
 	if err != nil {
-		logger.Error(err, "Failed to get Ping job results")
+		logger.Error(err, "Failed to get job results")
 		pingCopy.Status.Status = "Failed"
 		pingCopy.Status.FailureCount++
-		pingCopy.Status.LastResult = fmt.Sprintf("Error getting Ping job results: %v", err)
+		pingCopy.Status.LastResult = fmt.Sprintf("Error getting job results: %v", err)
 
 		// 添加失败条件
 		utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
@@ -197,40 +232,24 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			Status:             metav1.ConditionTrue,
 			LastTransitionTime: now,
 			Reason:             "ResultRetrievalFailed",
-			Message:            fmt.Sprintf("无法获取Ping测试结果: %v", err),
+			Message:            fmt.Sprintf("Ping测试获取结果失败: %v", err),
 		})
 	} else {
-		// 解析 Ping 输出并更新状态
-		pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
-
-		// 更新状态信息
+		// 成功执行
 		pingCopy.Status.Status = "Succeeded"
-		if ping.Spec.Schedule == "" {
-			pingCopy.Status.SuccessCount = 1
-		} else {
-			pingCopy.Status.SuccessCount++
-		}
+		pingCopy.Status.SuccessCount++
 		pingCopy.Status.LastResult = jobOutput
 
-		// 明确设置所有重要字段，确保数据完整 - 即使值为0也要设置
+		// 使用utils.ParsePingOutput解析输出并设置统计信息
+		pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
+
+		// 设置状态中的性能指标
 		pingCopy.Status.PacketLoss = pingOutput.PacketLoss
 		pingCopy.Status.MinRtt = pingOutput.MinRtt
 		pingCopy.Status.AvgRtt = pingOutput.AvgRtt
 		pingCopy.Status.MaxRtt = pingOutput.MaxRtt
 
-		// 确保所有重要字段都有值，即使为0也要明确设置
-		if pingCopy.Status.QueryCount == 0 {
-			pingCopy.Status.QueryCount = 1
-		}
-
-		logger.Info("Ping测试结果数据",
-			"host", ping.Spec.Host,
-			"packetLoss", pingCopy.Status.PacketLoss,
-			"minRtt", pingCopy.Status.MinRtt,
-			"avgRtt", pingCopy.Status.AvgRtt,
-			"maxRtt", pingCopy.Status.MaxRtt)
-
-		// 标记测试已完成
+		// 添加成功条件
 		utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
 			Type:               "Completed",
 			Status:             metav1.ConditionTrue,
@@ -238,6 +257,11 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 			Reason:             "TestCompleted",
 			Message:            "Ping测试已成功完成",
 		})
+
+		// 设置TestReportName，以便TestReport控制器可以找到它
+		if pingCopy.Status.TestReportName == "" {
+			pingCopy.Status.TestReportName = fmt.Sprintf("ping-%s-report", ping.Name)
+		}
 	}
 
 	// 更新状态
@@ -285,6 +309,12 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				pingCopy.Status.MinRtt = pingOutput.MinRtt
 				pingCopy.Status.AvgRtt = pingOutput.AvgRtt
 				pingCopy.Status.MaxRtt = pingOutput.MaxRtt
+
+				// 设置TestReportName，使TestReport控制器能够自动创建报告
+				// 如果TestReportName为空，则设置为默认格式
+				if pingCopy.Status.TestReportName == "" {
+					pingCopy.Status.TestReportName = fmt.Sprintf("ping-%s-report", ping.Name)
+				}
 
 				// 确保所有重要字段都有值，即使为0也要明确设置
 				if pingCopy.Status.QueryCount == 0 {
@@ -539,4 +569,41 @@ func conditionExists(conditions *[]metav1.Condition, newCond metav1.Condition) b
 		}
 	}
 	return false
+}
+
+// cleanupResources 清理与Ping资源关联的所有资源
+func (r *PingReconciler) cleanupResources(ctx context.Context, ping *testtoolsv1.Ping) error {
+	logger := log.FromContext(ctx)
+
+	// 查找并清理关联的Job
+	var jobList batchv1.JobList
+	if err := r.List(ctx, &jobList, client.InNamespace(ping.Namespace),
+		client.MatchingLabels{
+			"app.kubernetes.io/created-by": "testtools-controller",
+			"app.kubernetes.io/managed-by": "ping-controller",
+			"app.kubernetes.io/name":       "ping-job",
+			"app.kubernetes.io/instance":   ping.Name,
+		}); err != nil {
+		logger.Error(err, "无法列出关联的Job")
+		return err
+	}
+
+	for _, job := range jobList.Items {
+		logger.Info("删除关联的Job", "jobName", job.Name)
+		// 设置删除宽限期为0，立即删除
+		propagationPolicy := metav1.DeletePropagationBackground
+		deleteOptions := client.DeleteOptions{
+			PropagationPolicy: &propagationPolicy,
+		}
+		if err := r.Delete(ctx, &job, &deleteOptions); err != nil && !apierrors.IsNotFound(err) {
+			logger.Error(err, "删除Job失败", "jobName", job.Name)
+			return err
+		}
+	}
+
+	// 不再删除TestReport资源，这应该由TestReport控制器自己管理
+	// TestReport通过其ResourceSelectors引用Ping，当Ping删除时，TestReport控制器会负责清理或更新TestReport
+
+	logger.Info("资源清理完成", "pingName", ping.Name)
+	return nil
 }

@@ -2,6 +2,8 @@ package utils
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -9,17 +11,15 @@ import (
 	"strings"
 	"time"
 
+	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
 )
 
 // FioOutput represents the structure of fio JSON output
@@ -86,117 +86,109 @@ type PingOutput struct {
 	SuccessfulPings []float64 `json:"successfulPings"` // 所有成功的ping往返时间
 }
 
-// PrepareFioJob 准备运行fio的Job
+// PrepareFioJob 准备执行Fio测试的Job
 func PrepareFioJob(ctx context.Context, fio *testtoolsv1.Fio, client client.Client, scheme *runtime.Scheme) (*batchv1.Job, error) {
 	logger := log.FromContext(ctx)
-	// 使用一致的命名规则，包含UID以确保唯一性
-	jobName := fmt.Sprintf("fio-%s-%s", fio.Name, string(fio.UID)[:8])
-	var job batchv1.Job
+	logger.Info("准备执行Fio测试", "fio", fio.Name, "filePath", fio.Spec.FilePath)
 
-	// 检查job是否已经存在
+	// 创建带有标签的Job
+	labels := map[string]string{
+		"app":                          "testtools",
+		"type":                         "fio",
+		"test-name":                    fio.Name,
+		"app.kubernetes.io/created-by": "testtools-controller",
+		"app.kubernetes.io/managed-by": "fio-controller",
+		"app.kubernetes.io/name":       "fio-job",
+		"app.kubernetes.io/instance":   fio.Name,
+		"app.kubernetes.io/part-of":    "testtools",
+		"app.kubernetes.io/component":  "job",
+	}
+
+	// 使用固定格式的job名称，避免创建多个job
+	baseName := strings.TrimSuffix(fio.Name, "-job") // 移除可能存在的-job后缀
+	jobName := fmt.Sprintf("fio-%s-job", baseName)
+
+	// 检查Job是否已存在
+	var existingJob batchv1.Job
 	err := client.Get(ctx, types.NamespacedName{
 		Namespace: fio.Namespace,
 		Name:      jobName,
-	}, &job)
+	}, &existingJob)
 
-	// 如果job已经存在并且未完成，则返回它
 	if err == nil {
-		// 检查job是否已经完成
-		logger.Info("检查现有Job状态", "jobName", jobName, "status", fmt.Sprintf("succeeded: %d, failed: %d", job.Status.Succeeded, job.Status.Failed))
+		// Job已存在，检查其状态
+		if existingJob.Status.Succeeded > 0 {
+			// Job已成功完成，可以删除并创建新Job
+			logger.Info("已存在已完成的Fio Job，将删除后重新创建",
+				"job", jobName,
+				"namespace", fio.Namespace)
 
-		if job.Status.Succeeded > 0 || job.Status.Failed > 0 {
-			// 只有当配置为不保留Pod时才删除job
-			if !fio.Spec.RetainJobPods {
-				logger.Info("Job已完成，正在删除", "jobName", jobName, "namespace", fio.Namespace)
-				// 删除已经完成的job
-				err = client.Delete(ctx, &job)
-				if err != nil {
-					if !errors.IsNotFound(err) {
-						logger.Error(err, "删除已完成的Job失败", "jobName", jobName, "namespace", fio.Namespace)
-						return nil, err
-					}
-					// 已被删除，继续创建新Job
-				}
-				// 等待job被删除
-				time.Sleep(2 * time.Second)
-			} else {
-				logger.Info("Job已完成但保留Pod", "jobName", jobName, "namespace", fio.Namespace)
-				return &job, nil
+			if err := client.Delete(ctx, &existingJob); err != nil {
+				logger.Error(err, "删除已完成的Fio Job失败")
+				return nil, err
 			}
+			// 等待Job被删除
+			time.Sleep(2 * time.Second)
+		} else if existingJob.Status.Failed > 0 {
+			// Job已失败，可以删除并创建新Job
+			logger.Info("已存在失败的Fio Job，将删除后重新创建",
+				"job", jobName,
+				"namespace", fio.Namespace)
+
+			if err := client.Delete(ctx, &existingJob); err != nil {
+				logger.Error(err, "删除失败的Fio Job失败")
+				return nil, err
+			}
+			// 等待Job被删除
+			time.Sleep(2 * time.Second)
 		} else {
-			logger.Info("Job已存在且正在运行", "jobName", jobName, "namespace", fio.Namespace)
-			return &job, nil
+			// Job正在运行，直接返回Job
+			logger.Info("Fio Job正在运行中，不需要重新创建",
+				"job", jobName,
+				"namespace", fio.Namespace)
+			return &existingJob, nil
 		}
 	} else if !errors.IsNotFound(err) {
-		logger.Error(err, "检查Job是否存在时出错", "jobName", jobName, "namespace", fio.Namespace)
+		// 发生了除"未找到"之外的错误
+		logger.Error(err, "检查Fio Job是否存在时出错")
 		return nil, err
 	}
 
-	// 构建fio命令参数
+	// 构建命令参数
 	args, err := BuildFioArgs(fio)
 	if err != nil {
-		logger.Error(err, "构建fio参数失败", "fio", fio.Name, "namespace", fio.Namespace)
+		logger.Error(err, "构建Fio命令参数失败")
 		return nil, err
 	}
 
-	// 创建新的job
-	image := "registry.dev.rdev.tech:18093/fio:latest"
-	if fio.Spec.Image != "" {
-		image = fio.Spec.Image
+	logger.Info("创建新的Fio Job", "name", jobName, "args", args)
+
+	// 创建Job
+	job, err := CreateJobForCommand(ctx, client, fio.Namespace, jobName, "fio", args, labels, fio.Spec.Image)
+	if err != nil {
+		logger.Error(err, "创建Job失败")
+		return nil, err
 	}
 
-	// 创建一个可配置的TTL
-	var ttlSecondsAfterFinished int32 = 86400 // 默认为24小时
-
-	if fio.Spec.RetainJobPods {
-		// 如果设置为保留Pod，使用更长的TTL
-		ttlSecondsAfterFinished = 604800 // 7天
-	}
-
-	// 设置Job并行度为1，确保只创建一个Pod
-	var parallelism int32 = 1
-	var completions int32 = 1
-
-	job = batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: fio.Namespace,
-		},
-		Spec: batchv1.JobSpec{
-			// 明确设置并行度和完成数为1，确保只有一个Pod
-			Parallelism: &parallelism,
-			Completions: &completions,
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
-					Containers: []corev1.Container{
-						{
-							Name:    "fio",
-							Image:   image,
-							Command: []string{"fio"},
-							Args:    args,
-						},
-					},
-				},
-			},
-			TTLSecondsAfterFinished: &ttlSecondsAfterFinished,
+	// 设置所有者引用，使Job在Fio资源被删除时自动清理
+	job.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: fio.APIVersion,
+			Kind:       fio.Kind,
+			Name:       fio.Name,
+			UID:        fio.UID,
+			Controller: pointer.Bool(true),
 		},
 	}
 
-	// 设置所有者引用，确保删除fio时删除job
-	if err := controllerutil.SetControllerReference(fio, &job, scheme); err != nil {
-		logger.Error(err, "设置控制器引用失败", "jobName", jobName, "namespace", fio.Namespace)
+	// 更新Job添加所有者引用
+	if err := client.Update(ctx, job); err != nil {
+		logger.Error(err, "更新Fio Job的所有者引用失败")
 		return nil, err
 	}
 
-	// 创建job
-	logger.Info("创建新的Fio Job", "jobName", jobName, "namespace", fio.Namespace, "args", args)
-	if err = client.Create(ctx, &job); err != nil {
-		logger.Error(err, "创建Job失败", "jobName", jobName, "namespace", fio.Namespace)
-		return nil, err
-	}
-
-	return &job, nil
+	logger.Info("成功创建并更新Fio Job", "name", jobName)
+	return job, nil
 }
 
 // BuildFioArgs 构建FIO命令行参数
@@ -363,16 +355,22 @@ func PrepareDigJob(ctx context.Context, k8sClient client.Client, dig *testtoolsv
 
 	// 创建带有标签的Job
 	labels := map[string]string{
-		"app":       "testtools",
-		"type":      "dig",
-		"test-name": dig.Name,
+		"app":                          "testtools",
+		"type":                         "dig",
+		"test-name":                    dig.Name,
+		"app.kubernetes.io/created-by": "testtools-controller",
+		"app.kubernetes.io/managed-by": "dig-controller",
+		"app.kubernetes.io/name":       "dig-job",
+		"app.kubernetes.io/instance":   dig.Name,
+		"app.kubernetes.io/part-of":    "testtools",
+		"app.kubernetes.io/component":  "job",
 	}
 
 	// 修复：避免重复的"-job"后缀
 	// 使用不带后缀的基本名称
 	baseName := fmt.Sprintf("dig-%s", dig.Name)
-	// 完整的作业名称
-	jobName := fmt.Sprintf("%s-job", baseName)
+	// 完整的作业名称，加入随机ID避免冲突
+	jobName := fmt.Sprintf("%s-%s", baseName, GenerateShortUID())
 
 	// 检查Job是否已存在
 	var existingJob batchv1.Job
@@ -419,9 +417,26 @@ func PrepareDigJob(ctx context.Context, k8sClient client.Client, dig *testtoolsv
 	}
 
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	_, err = CreateJobForCommand(ctx, k8sClient, dig.Namespace, jobName, "dig", args, labels, dig.Spec.Image)
+	job, err := CreateJobForCommand(ctx, k8sClient, dig.Namespace, jobName, "dig", args, labels, dig.Spec.Image)
 	if err != nil {
 		logger.Error(err, "创建Dig Job失败")
+		return "", err
+	}
+
+	// 设置所有者引用
+	job.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: dig.APIVersion,
+			Kind:       dig.Kind,
+			Name:       dig.Name,
+			UID:        dig.UID,
+			Controller: pointer.Bool(true),
+		},
+	}
+
+	// 更新Job
+	if err := k8sClient.Update(ctx, job); err != nil {
+		logger.Error(err, "更新Dig Job的所有者引用失败")
 		return "", err
 	}
 
@@ -643,24 +658,39 @@ func ParseResponseTime(output string) float64 {
 	return 0
 }
 
-// PreparePingJob 准备执行Ping测试的Job
+// GenerateShortUID 生成一个短的唯一标识符
+func GenerateShortUID() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// 如果出错，使用时间戳作为备选
+		return fmt.Sprintf("%x", time.Now().UnixNano()%0xFFFFFFFF)
+	}
+	return hex.EncodeToString(b)
+}
+
+// PreparePingJob 准备并执行Ping测试Job
 func PreparePingJob(ctx context.Context, k8sClient client.Client, ping *testtoolsv1.Ping) (string, error) {
 	logger := log.FromContext(ctx)
+	logger.Info("准备执行Ping测试", "ping", ping.Name, "host", ping.Spec.Host)
 
-	// 构建Ping命令参数
+	// 构建ping命令参数
 	args := BuildPingArgs(ping)
 
-	// 创建带有标签的Job
+	// 为Job创建标签
 	labels := map[string]string{
-		"app":       "testtools",
-		"type":      "ping",
-		"test-name": ping.Name,
+		"app":                          "testtools",
+		"type":                         "ping",
+		"test-name":                    ping.Name,
+		"app.kubernetes.io/created-by": "testtools-controller",
+		"app.kubernetes.io/managed-by": "ping-controller",
+		"app.kubernetes.io/name":       "ping-job",
+		"app.kubernetes.io/instance":   ping.Name,
+		"app.kubernetes.io/part-of":    "testtools",
+		"app.kubernetes.io/component":  "job",
 	}
 
-	// 修复：避免重复的"-job"后缀
-	// 使用不带后缀的基本名称
-	baseName := fmt.Sprintf("ping-%s", ping.Name)
-	// 完整的作业名称
+	// 创建Job名称 - 避免重复"-job"后缀
+	baseName := strings.TrimSuffix(ping.Name, "-job")
 	jobName := fmt.Sprintf("%s-job", baseName)
 
 	// 检查Job是否已存在
@@ -707,13 +737,33 @@ func PreparePingJob(ctx context.Context, k8sClient client.Client, ping *testtool
 		return "", err
 	}
 
+	logger.Info("创建新的Ping Job", "name", jobName, "args", args)
+
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	_, err = CreateJobForCommand(ctx, k8sClient, ping.Namespace, jobName, "ping", args, labels, ping.Spec.Image)
+	job, err := CreateJobForCommand(ctx, k8sClient, ping.Namespace, jobName, "ping", args, labels, ping.Spec.Image)
 	if err != nil {
 		logger.Error(err, "创建Ping Job失败")
 		return "", err
 	}
 
+	// 设置所有者引用
+	job.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: ping.APIVersion,
+			Kind:       ping.Kind,
+			Name:       ping.Name,
+			UID:        ping.UID,
+			Controller: pointer.Bool(true),
+		},
+	}
+
+	// 更新Job
+	if err := k8sClient.Update(ctx, job); err != nil {
+		logger.Error(err, "更新Ping Job的所有者引用失败")
+		return "", err
+	}
+
+	logger.Info("成功创建并更新Ping Job", "name", jobName)
 	return jobName, nil
 }
 

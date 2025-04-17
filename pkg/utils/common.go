@@ -409,3 +409,24 @@ func UpdateWithRetry(ctx context.Context, c client.Client, obj client.Object, up
 
 	return fmt.Errorf("经过%d次尝试后仍无法更新资源", maxRetries)
 }
+
+// ContainsString 检查slice中是否包含指定字符串
+func ContainsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+// RemoveString 从slice中移除指定字符串
+func RemoveString(slice []string, s string) []string {
+	var result []string
+	for _, item := range slice {
+		if item != s {
+			result = append(result, item)
+		}
+	}
+	return result
+}

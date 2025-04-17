@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -70,6 +71,40 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		logger.Error(err, "获取Dig资源失败", "namespacedName", req.NamespacedName)
 		return ctrl.Result{}, err
+	}
+
+	// 添加finalizer处理逻辑
+	digFinalizer := "testtools.xiaoming.com/dig-finalizer"
+
+	// 检查对象是否正在被删除
+	if dig.ObjectMeta.DeletionTimestamp.IsZero() {
+		// 对象没有被标记为删除，确保它有我们的finalizer
+		if !utils.ContainsString(dig.GetFinalizers(), digFinalizer) {
+			logger.Info("添加finalizer", "finalizer", digFinalizer)
+			dig.SetFinalizers(append(dig.GetFinalizers(), digFinalizer))
+			if err := r.Update(ctx, &dig); err != nil {
+				return ctrl.Result{}, err
+			}
+			// 已更新finalizer，重新触发reconcile
+			return ctrl.Result{}, nil
+		}
+	} else {
+		// 对象正在被删除
+		if utils.ContainsString(dig.GetFinalizers(), digFinalizer) {
+			// 执行清理操作
+			if err := r.cleanupResources(ctx, &dig); err != nil {
+				logger.Error(err, "清理资源失败")
+				return ctrl.Result{}, err
+			}
+
+			// 清理完成后，移除finalizer
+			dig.SetFinalizers(utils.RemoveString(dig.GetFinalizers(), digFinalizer))
+			if err := r.Update(ctx, &dig); err != nil {
+				return ctrl.Result{}, err
+			}
+			logger.Info("已移除finalizer，允许资源被删除")
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// 检查是否需要执行测试
@@ -215,6 +250,12 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		digCopy.Status.LastResult = jobOutput
 		digCopy.Status.AverageResponseTime = digOutput.QueryTime
 
+		// 设置TestReportName，使TestReport控制器能够自动创建报告
+		// 如果TestReportName为空，则设置为默认格式
+		if digCopy.Status.TestReportName == "" {
+			digCopy.Status.TestReportName = fmt.Sprintf("dig-%s-report", dig.Name)
+		}
+
 		// 确保所有重要字段都被设置
 		if digCopy.Status.QueryCount == 0 {
 			digCopy.Status.QueryCount = 1
@@ -279,6 +320,12 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				}
 				digCopy.Status.LastResult = jobOutput
 				digCopy.Status.AverageResponseTime = digOutput.QueryTime
+
+				// 设置TestReportName，使TestReport控制器能够自动创建报告
+				// 如果TestReportName为空，则设置为默认格式
+				if digCopy.Status.TestReportName == "" {
+					digCopy.Status.TestReportName = fmt.Sprintf("dig-%s-report", dig.Name)
+				}
 
 				// 确保所有重要字段都被设置
 				if digCopy.Status.QueryCount == 0 {
@@ -363,4 +410,41 @@ func (r *DigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&testtoolsv1.Dig{}).
 		Complete(r)
+}
+
+// cleanupResources 清理与Dig资源关联的所有资源
+func (r *DigReconciler) cleanupResources(ctx context.Context, dig *testtoolsv1.Dig) error {
+	logger := log.FromContext(ctx)
+
+	// 查找并清理关联的Job
+	var jobList batchv1.JobList
+	if err := r.List(ctx, &jobList, client.InNamespace(dig.Namespace),
+		client.MatchingLabels{
+			"app.kubernetes.io/created-by": "testtools-controller",
+			"app.kubernetes.io/managed-by": "dig-controller",
+			"app.kubernetes.io/name":       "dig-job",
+			"app.kubernetes.io/instance":   dig.Name,
+		}); err != nil {
+		logger.Error(err, "无法列出关联的Job")
+		return err
+	}
+
+	for _, job := range jobList.Items {
+		logger.Info("删除关联的Job", "jobName", job.Name)
+		// 设置删除宽限期为0，立即删除
+		propagationPolicy := metav1.DeletePropagationBackground
+		deleteOptions := client.DeleteOptions{
+			PropagationPolicy: &propagationPolicy,
+		}
+		if err := r.Delete(ctx, &job, &deleteOptions); err != nil && !apierrors.IsNotFound(err) {
+			logger.Error(err, "删除Job失败", "jobName", job.Name)
+			return err
+		}
+	}
+
+	// 不再删除TestReport资源，这应该由TestReport控制器自己管理
+	// TestReport通过其ResourceSelectors引用Dig，当Dig删除时，TestReport控制器会负责清理或更新TestReport
+
+	logger.Info("资源清理完成", "digName", dig.Name)
+	return nil
 }

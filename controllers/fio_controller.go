@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -35,7 +34,6 @@ import (
 
 	"github.com/xiaoming/testtools/pkg/utils"
 	batchv1 "k8s.io/api/batch/v1"
-	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
@@ -75,6 +73,40 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		}
 		logger.Error(err, "获取Fio资源失败", "namespacedName", req.NamespacedName)
 		return ctrl.Result{}, err
+	}
+
+	// 添加finalizer处理逻辑
+	fioFinalizer := "testtools.xiaoming.com/fio-finalizer"
+
+	// 检查对象是否正在被删除
+	if fio.ObjectMeta.DeletionTimestamp.IsZero() {
+		// 对象没有被标记为删除，确保它有我们的finalizer
+		if !utils.ContainsString(fio.GetFinalizers(), fioFinalizer) {
+			logger.Info("添加finalizer", "finalizer", fioFinalizer)
+			fio.SetFinalizers(append(fio.GetFinalizers(), fioFinalizer))
+			if err := r.Update(ctx, &fio); err != nil {
+				return ctrl.Result{}, err
+			}
+			// 已更新finalizer，重新触发reconcile
+			return ctrl.Result{}, nil
+		}
+	} else {
+		// 对象正在被删除
+		if utils.ContainsString(fio.GetFinalizers(), fioFinalizer) {
+			// 执行清理操作
+			if err := r.cleanupResources(ctx, &fio); err != nil {
+				logger.Error(err, "清理资源失败")
+				return ctrl.Result{}, err
+			}
+
+			// 清理完成后，移除finalizer
+			fio.SetFinalizers(utils.RemoveString(fio.GetFinalizers(), fioFinalizer))
+			if err := r.Update(ctx, &fio); err != nil {
+				return ctrl.Result{}, err
+			}
+			logger.Info("已移除finalizer，允许资源被删除")
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// 检查是否需要执行测试
@@ -268,6 +300,11 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				Reason:             "TestCompleted",
 				Message:            "FIO测试已成功完成",
 			})
+
+			// 设置TestReportName，使TestReport控制器能够自动创建报告
+			if fioCopy.Status.TestReportName == "" {
+				fioCopy.Status.TestReportName = fmt.Sprintf("fio-%s-report", fio.Name)
+			}
 		}
 	}
 
@@ -361,6 +398,11 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 						Reason:             "TestCompleted",
 						Message:            "FIO测试已成功完成",
 					})
+
+					// 设置TestReportName，使TestReport控制器能够自动创建报告
+					if fioCopy.Status.TestReportName == "" {
+						fioCopy.Status.TestReportName = fmt.Sprintf("fio-%s-report", fio.Name)
+					}
 				}
 			} else {
 				// 错误状态更新
@@ -421,130 +463,118 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 
 // executeFio executes FIO tests and returns the results
 func (r *FioReconciler) executeFio(ctx context.Context, fio *testtoolsv1.Fio) (testtoolsv1.FioStats, error) {
-	log := log.FromContext(ctx)
-	log.Info("Executing FIO test", "name", fio.Name, "namespace", fio.Namespace)
+	logger := log.FromContext(ctx)
+	logger.Info("开始执行Fio测试", "fio", fio.Name, "namespace", fio.Namespace)
 
-	// Create job name
-	jobName := fmt.Sprintf("fio-%s-%s", fio.Name, string(fio.UID)[:8])
-
-	// Check if job exists
-	var job batchv1.Job
-	err := r.Get(ctx, types.NamespacedName{Namespace: fio.Namespace, Name: jobName}, &job)
-
+	// 创建Job执行Fio测试
+	job, err := utils.PrepareFioJob(ctx, fio, r.Client, r.Scheme)
 	if err != nil {
-		if !errors.IsNotFound(err) {
-			log.Error(err, "Failed to check for existing job")
-			return testtoolsv1.FioStats{}, fmt.Errorf("failed to check for existing job: %w", err)
+		logger.Error(err, "创建Fio Job失败")
+		return testtoolsv1.FioStats{}, err
+	}
+
+	// 等待Job完成
+	err = utils.WaitForJob(ctx, r.Client, fio.Namespace, job.Name, 10*time.Minute)
+	if err != nil {
+		logger.Error(err, "等待Fio Job完成失败")
+		return testtoolsv1.FioStats{}, err
+	}
+
+	// 获取Job输出
+	output, err := utils.GetJobResults(ctx, r.Client, fio.Namespace, job.Name)
+	if err != nil {
+		logger.Error(err, "获取Fio Job结果失败")
+		return testtoolsv1.FioStats{}, err
+	}
+
+	// 解析Fio输出
+	stats, err := utils.ParseFioOutput(output)
+	if err != nil {
+		logger.Error(err, "解析Fio输出失败")
+		return testtoolsv1.FioStats{}, err
+	}
+
+	// 更新Fio状态，包括设置TestReportName
+	err = r.updateFioStatus(ctx, types.NamespacedName{Name: fio.Name, Namespace: fio.Namespace}, func(fioObj *testtoolsv1.Fio) {
+		fioObj.Status.Status = "Succeeded"
+		fioObj.Status.LastExecutionTime = &metav1.Time{Time: time.Now()}
+
+		// 设置性能统计数据
+		fioObj.Status.Stats = stats
+
+		// 限制输出长度，避免太大
+		if len(output) > 5000 {
+			output = output[:5000] + "...(输出被截断)"
+		}
+		fioObj.Status.LastResult = output
+
+		// 设置TestReportName，使TestReport控制器能够自动创建报告
+		if fioObj.Status.TestReportName == "" {
+			fioObj.Status.TestReportName = fmt.Sprintf("fio-%s-report", fio.Name)
 		}
 
-		// Job doesn't exist, create it
-		log.Info("Creating new FIO job", "name", jobName)
-		jobObj, err := utils.PrepareFioJob(ctx, fio, r.Client, r.Scheme)
-		if err != nil {
-			log.Error(err, "Failed to prepare FIO job")
-			return testtoolsv1.FioStats{}, fmt.Errorf("failed to prepare job: %w", err)
-		}
+		// 更新条件
+		utils.SetCondition(&fioObj.Status.Conditions, metav1.Condition{
+			Type:               "Completed",
+			Status:             metav1.ConditionTrue,
+			LastTransitionTime: metav1.Time{Time: time.Now()},
+			Reason:             "TestCompleted",
+			Message:            "Fio测试已成功完成",
+		})
+	})
 
-		// Store job name for later use
-		jobName = jobObj.Name
-		log.Info("FIO job created", "name", jobName)
-	} else {
-		log.Info("Found existing FIO job", "name", jobName, "status", job.Status)
-	}
-
-	// Wait for job completion
-	err = utils.WaitForJob(ctx, r.Client, fio.Namespace, jobName, 15*time.Minute)
 	if err != nil {
-		return testtoolsv1.FioStats{}, fmt.Errorf("error waiting for job: %w", err)
+		logger.Error(err, "更新Fio状态失败")
+		return stats, err
 	}
 
-	// Get job pods
-	pods := &v1.PodList{}
-	if err := r.List(ctx, pods,
-		client.InNamespace(fio.Namespace),
-		client.MatchingLabels{"job-name": jobName}); err != nil {
-		return testtoolsv1.FioStats{}, fmt.Errorf("failed to list pods: %w", err)
-	}
-
-	if len(pods.Items) == 0 {
-		return testtoolsv1.FioStats{}, fmt.Errorf("no pods found for job %s", jobName)
-	}
-
-	// Get results
-	results, err := utils.GetJobResults(ctx, r.Client, fio.Namespace, pods.Items[0].Name)
-	if err != nil {
-		return testtoolsv1.FioStats{}, fmt.Errorf("failed to get results: %w", err)
-	}
-
-	// Parse FIO output
-	fioStats, err := utils.ParseFioOutput(results)
-	if err != nil {
-		return testtoolsv1.FioStats{}, fmt.Errorf("failed to parse output: %w", err)
-	}
-
-	return fioStats, nil
+	return stats, nil
 }
 
 // updateFioStatus 使用乐观锁更新Fio状态
 func (r *FioReconciler) updateFioStatus(ctx context.Context, name types.NamespacedName, updateFn func(*testtoolsv1.Fio)) error {
 	logger := log.FromContext(ctx)
-	retries := 3
-	backoff := 100 * time.Millisecond
+	retries := 5
+	backoff := 200 * time.Millisecond
 
+	var lastErr error
 	for i := 0; i < retries; i++ {
-		// 每次都获取最新版本
+		// 获取Fio实例
 		var fio testtoolsv1.Fio
 		if err := r.Get(ctx, name, &fio); err != nil {
 			if errors.IsNotFound(err) {
 				logger.Info("无法找到要更新的Fio资源", "name", name.Name, "namespace", name.Namespace)
 				return err
 			}
-			logger.Error(err, "获取Fio资源失败", "name", name.Name, "namespace", name.Namespace)
-			return err
+			lastErr = err
+			continue
 		}
 
-		// 深拷贝当前状态以便比较
-		oldStatus := fio.Status.DeepCopy()
-
-		// 应用更新函数
+		// 应用更新
 		updateFn(&fio)
 
-		// 如果状态实际未变化，无需更新
-		if reflect.DeepEqual(oldStatus, &fio.Status) {
-			logger.Info("Fio状态未变化，跳过更新", "name", name.Name, "namespace", name.Namespace)
-			return nil
+		// 确保TestReportName被设置
+		if fio.Status.Status == "Succeeded" && fio.Status.TestReportName == "" {
+			fio.Status.TestReportName = fmt.Sprintf("fio-%s-report", fio.Name)
 		}
 
-		// 尝试更新
+		// 更新状态
 		if err := r.Status().Update(ctx, &fio); err != nil {
 			if errors.IsConflict(err) {
-				// 冲突则重试
-				logger.Info("更新Fio状态时发生冲突，准备重试",
-					"attempt", i+1,
-					"maxRetries", retries,
-					"name", name.Name,
-					"namespace", name.Namespace)
-
-				// 使用指数退避策略
-				if i < retries-1 {
-					time.Sleep(backoff)
-					backoff *= 2 // 指数增长
-					continue
-				}
+				// 冲突错误，等待后重试
+				lastErr = err
+				time.Sleep(backoff)
+				backoff *= 2 // 指数退避
+				continue
 			}
-
-			logger.Error(err, "更新Fio状态失败",
-				"name", name.Name,
-				"namespace", name.Namespace,
-				"attempt", i+1)
 			return err
 		}
 
-		logger.Info("成功更新Fio状态", "name", name.Name, "namespace", name.Namespace)
+		// 更新成功
 		return nil
 	}
 
-	return fmt.Errorf("在%d次尝试后仍无法更新Fio状态", retries)
+	return fmt.Errorf("failed to update Fio status after %d retries: %v", retries, lastErr)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -553,4 +583,41 @@ func (r *FioReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&testtoolsv1.Fio{}).
 		Owns(&batchv1.Job{}).
 		Complete(r)
+}
+
+// cleanupResources 清理与Fio资源关联的所有资源
+func (r *FioReconciler) cleanupResources(ctx context.Context, fio *testtoolsv1.Fio) error {
+	logger := log.FromContext(ctx)
+
+	// 查找并清理关联的Job
+	var jobList batchv1.JobList
+	if err := r.List(ctx, &jobList, client.InNamespace(fio.Namespace),
+		client.MatchingLabels{
+			"app.kubernetes.io/created-by": "testtools-controller",
+			"app.kubernetes.io/managed-by": "fio-controller",
+			"app.kubernetes.io/name":       "fio-job",
+			"app.kubernetes.io/instance":   fio.Name,
+		}); err != nil {
+		logger.Error(err, "无法列出关联的Job")
+		return err
+	}
+
+	for _, job := range jobList.Items {
+		logger.Info("删除关联的Job", "jobName", job.Name)
+		// 设置删除宽限期为0，立即删除
+		propagationPolicy := metav1.DeletePropagationBackground
+		deleteOptions := client.DeleteOptions{
+			PropagationPolicy: &propagationPolicy,
+		}
+		if err := r.Delete(ctx, &job, &deleteOptions); err != nil && !apierrors.IsNotFound(err) {
+			logger.Error(err, "删除Job失败", "jobName", job.Name)
+			return err
+		}
+	}
+
+	// 不再删除TestReport资源，这应该由TestReport控制器自己管理
+	// TestReport通过其ResourceSelectors引用Fio，当Fio删除时，TestReport控制器会负责清理或更新TestReport
+
+	logger.Info("资源清理完成", "fioName", fio.Name)
+	return nil
 }
