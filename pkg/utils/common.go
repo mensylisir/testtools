@@ -5,17 +5,16 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
-	"strings"
-	"time"
-
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"net"
+	"os/exec"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -303,130 +302,135 @@ func ExecuteCommand(ctx context.Context, command string, args []string) (string,
 }
 
 // WaitForJob waits for a job to complete with timeout
-func WaitForJob(ctx context.Context, k8sClient client.Client, namespace, name string, timeout time.Duration) error {
-	logger := log.FromContext(ctx)
-	logger.Info("Waiting for job to complete", "namespace", namespace, "name", name, "timeout", timeout)
-
-	deadline := time.Now().Add(timeout)
-	pollInterval := 5 * time.Second
-	consecutiveNotFoundErrors := 0
-	maxConsecutiveNotFoundErrors := 3
-
-	for time.Now().Before(deadline) {
-		var job batchv1.Job
-		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &job); err != nil {
-			if errors.IsNotFound(err) {
-				// 如果Job不存在，可能是被其他进程删除或尚未创建
-				consecutiveNotFoundErrors++
-				logger.Info("Job not found during waiting", "namespace", namespace, "name", name,
-					"consecutiveErrors", consecutiveNotFoundErrors)
-
-				// 如果连续多次找不到Job，认为Job已被删除或永远不会出现
-				if consecutiveNotFoundErrors >= maxConsecutiveNotFoundErrors {
-					logger.Error(err, "Job not found for several consecutive checks, assuming it was deleted or never created",
-						"namespace", namespace, "name", name, "checks", consecutiveNotFoundErrors)
-					return fmt.Errorf("Job.batch \"%s/%s\" not found after %d consecutive checks", namespace, name, consecutiveNotFoundErrors)
-				}
-
-				// 短暂等待后继续下一次检查
-				time.Sleep(2 * time.Second)
-				continue
-			}
-			// 其他错误直接返回
-			logger.Error(err, "Failed to get job")
-			return err
-		}
-
-		// 找到了Job，重置连续错误计数
-		consecutiveNotFoundErrors = 0
-
-		if job.Status.Succeeded > 0 {
-			logger.Info("Job completed successfully", "namespace", namespace, "name", name)
-			return nil
-		}
-
-		if job.Status.Failed > *job.Spec.BackoffLimit {
-			logger.Error(nil, "Job failed", "namespace", namespace, "name", name,
-				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
-			return fmt.Errorf("job failed: %s/%s", namespace, name)
-		}
-
-		logger.V(1).Info("Job still running, waiting...", "namespace", namespace, "name", name)
-		time.Sleep(pollInterval)
-	}
-
-	return fmt.Errorf("timeout waiting for job: %s/%s", namespace, name)
-}
+//func WaitForJob(ctx context.Context, k8sClient client.Client, namespace, name string, timeout time.Duration) error {
+//	logger := log.FromContext(ctx)
+//	logger.Info("Waiting for job to complete", "namespace", namespace, "name", name, "timeout", timeout)
+//
+//	deadline := time.Now().Add(timeout)
+//	pollInterval := 5 * time.Second
+//	consecutiveNotFoundErrors := 0
+//	maxConsecutiveNotFoundErrors := 3
+//
+//	for time.Now().Before(deadline) {
+//		var job batchv1.Job
+//		if err := k8sClient.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &job); err != nil {
+//			if errors.IsNotFound(err) {
+//				// 如果Job不存在，可能是被其他进程删除或尚未创建
+//				consecutiveNotFoundErrors++
+//				logger.Info("Job not found during waiting", "namespace", namespace, "name", name,
+//					"consecutiveErrors", consecutiveNotFoundErrors)
+//
+//				// 如果连续多次找不到Job，认为Job已被删除或永远不会出现
+//				if consecutiveNotFoundErrors >= maxConsecutiveNotFoundErrors {
+//					logger.Error(err, "Job not found for several consecutive checks, assuming it was deleted or never created",
+//						"namespace", namespace, "name", name, "checks", consecutiveNotFoundErrors)
+//					return fmt.Errorf("Job.batch \"%s/%s\" not found after %d consecutive checks", namespace, name, consecutiveNotFoundErrors)
+//				}
+//
+//				// 短暂等待后继续下一次检查
+//				time.Sleep(2 * time.Second)
+//				continue
+//			}
+//			// 其他错误直接返回
+//			logger.Error(err, "Failed to get job")
+//			return err
+//		}
+//
+//		// 找到了Job，重置连续错误计数
+//		consecutiveNotFoundErrors = 0
+//
+//		if job.Status.Succeeded > 0 {
+//			logger.Info("Job completed successfully", "namespace", namespace, "name", name)
+//			return nil
+//		}
+//
+//		if job.Status.Failed > *job.Spec.BackoffLimit {
+//			logger.Error(nil, "Job failed", "namespace", namespace, "name", name,
+//				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+//			return fmt.Errorf("job failed: %s/%s", namespace, name)
+//		}
+//
+//		logger.V(1).Info("Job still running, waiting...", "namespace", namespace, "name", name)
+//		time.Sleep(pollInterval)
+//	}
+//
+//	return fmt.Errorf("timeout waiting for job: %s/%s", namespace, name)
+//}
 
 // UpdateWithRetry 使用乐观锁重试机制更新资源
 // 它会在遇到冲突时重试更新操作，最多重试maxRetries次
-func UpdateWithRetry(ctx context.Context, c client.Client, obj client.Object, updateFn func(), maxRetries int) error {
-	logger := log.FromContext(ctx)
-	if maxRetries <= 0 {
-		maxRetries = 5 // 默认最多重试5次
-	}
-
-	retryDelay := 200 * time.Millisecond
-
-	for i := 0; i < maxRetries; i++ {
-		// 保存资源的当前版本
-		key := types.NamespacedName{
-			Namespace: obj.GetNamespace(),
-			Name:      obj.GetName(),
-		}
-
-		// 只有在重试时才重新获取对象
-		if i > 0 {
-			if err := c.Get(ctx, key, obj); err != nil {
-				return fmt.Errorf("获取资源失败: %w", err)
-			}
-			logger.V(1).Info("重试更新资源", "资源", key, "尝试", i+1, "最大重试次数", maxRetries)
-		}
-
-		// 应用更新函数
-		updateFn()
-
-		// 尝试更新
-		err := c.Status().Update(ctx, obj)
-		if err == nil {
-			// 更新成功
-			logger.V(1).Info("成功更新资源", "资源", key, "尝试次数", i+1)
-			return nil
-		}
-
-		// 检查是否是冲突错误
-		if !errors.IsConflict(err) {
-			// 非冲突错误，直接返回
-			logger.Error(err, "更新资源时发生非冲突错误", "资源", key)
-			return fmt.Errorf("更新资源时发生错误: %w", err)
-		}
-
-		// 发生冲突，等待后重试
-		retryTime := retryDelay * time.Duration(1<<uint(i))
-		logger.V(1).Info("更新发生冲突，将重试", "资源", key, "重试次数", i+1, "等待时间", retryTime)
-		time.Sleep(retryTime)
-	}
-
-	return fmt.Errorf("经过%d次尝试后仍无法更新资源", maxRetries)
-}
+//func UpdateWithRetry(ctx context.Context, c client.Client, obj client.Object, updateFn func(), maxRetries int) error {
+//	logger := log.FromContext(ctx)
+//	if maxRetries <= 0 {
+//		maxRetries = 5 // 默认最多重试5次
+//	}
+//
+//	retryDelay := 200 * time.Millisecond
+//
+//	for i := 0; i < maxRetries; i++ {
+//		// 保存资源的当前版本
+//		key := types.NamespacedName{
+//			Namespace: obj.GetNamespace(),
+//			Name:      obj.GetName(),
+//		}
+//
+//		// 只有在重试时才重新获取对象
+//		if i > 0 {
+//			if err := c.Get(ctx, key, obj); err != nil {
+//				return fmt.Errorf("获取资源失败: %w", err)
+//			}
+//			logger.V(1).Info("重试更新资源", "资源", key, "尝试", i+1, "最大重试次数", maxRetries)
+//		}
+//
+//		// 应用更新函数
+//		updateFn()
+//
+//		// 尝试更新
+//		err := c.Status().Update(ctx, obj)
+//		if err == nil {
+//			// 更新成功
+//			logger.V(1).Info("成功更新资源", "资源", key, "尝试次数", i+1)
+//			return nil
+//		}
+//
+//		// 检查是否是冲突错误
+//		if !errors.IsConflict(err) {
+//			// 非冲突错误，直接返回
+//			logger.Error(err, "更新资源时发生非冲突错误", "资源", key)
+//			return fmt.Errorf("更新资源时发生错误: %w", err)
+//		}
+//
+//		// 发生冲突，等待后重试
+//		retryTime := retryDelay * time.Duration(1<<uint(i))
+//		logger.V(1).Info("更新发生冲突，将重试", "资源", key, "重试次数", i+1, "等待时间", retryTime)
+//		time.Sleep(retryTime)
+//	}
+//
+//	return fmt.Errorf("经过%d次尝试后仍无法更新资源", maxRetries)
+//}
 
 // ContainsString 检查slice中是否包含指定字符串
-func ContainsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
-}
+//func ContainsString(slice []string, s string) bool {
+//	for _, item := range slice {
+//		if item == s {
+//			return true
+//		}
+//	}
+//	return false
+//}
 
 // RemoveString 从slice中移除指定字符串
-func RemoveString(slice []string, s string) []string {
-	var result []string
-	for _, item := range slice {
-		if item != s {
-			result = append(result, item)
-		}
-	}
-	return result
+//func RemoveString(slice []string, s string) []string {
+//	var result []string
+//	for _, item := range slice {
+//		if item != s {
+//			result = append(result, item)
+//		}
+//	}
+//	return result
+//}
+
+func IsValidIP(ip string) bool {
+	// Check if the string is a valid IP address
+	return net.ParseIP(ip) != nil
 }

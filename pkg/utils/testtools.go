@@ -991,15 +991,15 @@ func ParsePingStatistics(output string, pingOutput *PingOutput) {
 }
 
 // ExtractPingStats 从 PingOutput 提取 PingStatus
-func ExtractPingStats(output *PingOutput) testtoolsv1.PingStatus {
-	status := testtoolsv1.PingStatus{
-		PacketLoss: output.PacketLoss,
-		MinRtt:     output.MinRtt,
-		AvgRtt:     output.AvgRtt,
-		MaxRtt:     output.MaxRtt,
-	}
-	return status
-}
+//func ExtractPingStats(output *PingOutput) testtoolsv1.PingStatus {
+//	status := testtoolsv1.PingStatus{
+//		PacketLoss: output.PacketLoss,
+//		MinRtt:     output.MinRtt,
+//		AvgRtt:     output.AvgRtt,
+//		MaxRtt:     output.MaxRtt,
+//	}
+//	return status
+//}
 
 // GenerateTestReportName 生成测试报告名称，避免重复前缀
 // 控制器可以共享这个函数以保持命名一致性
@@ -1010,4 +1010,190 @@ func GenerateTestReportName(resourceKind string, resourceName string) string {
 		return fmt.Sprintf("%s-report", resourceName)
 	}
 	return fmt.Sprintf("%s-%s-report", kindLower, resourceName)
+}
+
+func BuildNCArgs(nc *testtoolsv1.Nc) []string {
+	args := []string{}
+
+	// Add UDP flag if specified
+	if nc.Spec.UDP {
+		args = append(args, "-u")
+	}
+
+	// Add verbose flag if specified
+	if nc.Spec.Verbose {
+		args = append(args, "-v")
+	}
+
+	// Add ZeroIO flag if specified
+	if nc.Spec.ZeroIO {
+		args = append(args, "-z")
+	}
+
+	// Add NoDNS flag if specified
+	if nc.Spec.NoDNS {
+		args = append(args, "-n")
+	}
+
+	// Add timeout flag if specified
+	if nc.Spec.Timeout != 0 {
+		args = append(args, "-w", fmt.Sprintf("%d", nc.Spec.Timeout))
+	}
+
+	// Add source IP flag if specified
+	if nc.Spec.SourceIP != "" {
+		args = append(args, "-s", nc.Spec.SourceIP)
+	}
+
+	// Add source port flag if specified
+	if nc.Spec.SourcePort != 0 {
+		args = append(args, "-p", fmt.Sprintf("%d", nc.Spec.SourcePort))
+	}
+
+	// Add repeat count flag if specified
+	if nc.Spec.RepeatCount != 0 {
+		args = append(args, "-c", fmt.Sprintf("%d", nc.Spec.RepeatCount))
+	}
+
+	// Add the host and port
+	args = append(args, nc.Spec.Host, fmt.Sprintf("%d", nc.Spec.Port))
+
+	return args
+}
+
+func BuildTcpPingArgs(tcpPing *testtoolsv1.Tcpping) []string {
+	args := []string{"tcp-ping"}
+
+	// Add host
+	args = append(args, tcpPing.Spec.Host)
+
+	// Add port
+	args = append(args, fmt.Sprintf("%d", tcpPing.Spec.Port))
+
+	// Add timeout if specified
+	if tcpPing.Spec.Timeout != 0 {
+		args = append(args, "-w", fmt.Sprintf("%d", tcpPing.Spec.Timeout))
+	}
+
+	// Add count if specified
+	if tcpPing.Spec.Count != 0 {
+		args = append(args, "-c", fmt.Sprintf("%d", tcpPing.Spec.Count))
+	}
+
+	return args
+}
+
+func BuildIperfClientArgs(iperf *testtoolsv1.Iperf3) ([]string, error) {
+	var args []string
+	args = append(args, "iperf3", "--client", iperf.Spec.Server)
+
+	// Add server port if specified
+	if iperf.Spec.Port != 0 {
+		args = append(args, "--port", fmt.Sprintf("%d", iperf.Spec.Port))
+	}
+
+	// Add duration if specified
+	if iperf.Spec.Duration != 0 {
+		args = append(args, "--time", fmt.Sprintf("%d", iperf.Spec.Duration))
+	}
+
+	// Add protocol if specified (TCP/UDP)
+	if iperf.Spec.Protocol == "UDP" {
+		args = append(args, "-u")
+	}
+
+	// Add parallel streams if specified
+	if iperf.Spec.Parallel > 0 {
+		args = append(args, "--parallel", fmt.Sprintf("%d", iperf.Spec.Parallel))
+	}
+
+	// Add buffer size if specified
+	if iperf.Spec.BufferSize != "" {
+		args = append(args, "--buffer", iperf.Spec.BufferSize)
+	}
+
+	// Add verbose if specified
+	if iperf.Spec.Verbose {
+		args = append(args, "--verbose")
+	}
+
+	// Check if the command is valid
+	if len(args) == 0 {
+		return nil, fmt.Errorf("failed to build iperf3 client command, missing parameters")
+	}
+
+	return args, nil
+}
+
+func BuildIperfServerArgs(iperf *testtoolsv1.Iperf3) ([]string, error) {
+	var args []string
+	args = append(args, "iperf3", "--server")
+
+	// Add port if specified
+	if iperf.Spec.Port != 0 {
+		args = append(args, "--port", fmt.Sprintf("%d", iperf.Spec.Port))
+	}
+
+	// Add bind address if specified
+	if iperf.Spec.Server != "" {
+		args = append(args, "--bind", iperf.Spec.Server)
+	}
+
+	// Add verbose if specified
+	if iperf.Spec.Verbose {
+		args = append(args, "--verbose")
+	}
+
+	// Check if the command is valid
+	if len(args) == 0 {
+		return nil, fmt.Errorf("failed to build iperf3 server command, missing parameters")
+	}
+
+	return args, nil
+}
+
+func BuildSkoopArgs(skoop *testtoolsv1.Skoop) []string {
+	args := []string{"skoop"}
+
+	// Add source namespace if specified
+	if skoop.Spec.SourceNamespace != "" {
+		args = append(args, "--source-namespace", skoop.Spec.SourceNamespace)
+	}
+
+	// Add source pod if specified
+	if skoop.Spec.SourcePod != "" {
+		args = append(args, "--source-pod", skoop.Spec.SourcePod)
+	}
+
+	// Add destination namespace if specified
+	if skoop.Spec.DestinationNamespace != "" {
+		args = append(args, "--dest-namespace", skoop.Spec.DestinationNamespace)
+	}
+
+	// Add destination pod if specified
+	if skoop.Spec.Destination != "" {
+		// Determine if the destination is a valid IP address or a service FQDN or a Pod name
+		if IsValidIP(skoop.Spec.Destination) {
+			// If it's an IP, just use it directly
+			args = append(args, "--destination", skoop.Spec.Destination)
+		} else if strings.Contains(skoop.Spec.Destination, ".svc.cluster.local") {
+			// If it's a service FQDN (simple check), treat it as a service
+			args = append(args, "--destination", skoop.Spec.Destination)
+		} else {
+			// Otherwise, treat it as a Pod name
+			args = append(args, "--destination", skoop.Spec.Destination)
+		}
+	}
+
+	// Add test type if specified
+	if skoop.Spec.Type != "" {
+		args = append(args, "--type", skoop.Spec.Type)
+	}
+
+	// Add duration if specified
+	if skoop.Spec.Duration != 0 {
+		args = append(args, "--duration", fmt.Sprintf("%d", skoop.Spec.Duration))
+	}
+
+	return args
 }
