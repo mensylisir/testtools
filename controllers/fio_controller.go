@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/types"
 	"strconv"
 	"strings"
 	"time"
@@ -176,28 +177,49 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	fioCopy.Status.ExecutedCommand = fmt.Sprintf("fio %s", strings.Join(fioArgs, " "))
 	logger.Info("Setting executed command", "command", fioCopy.Status.ExecutedCommand)
 
-	logger.Info("Waiting for Fio job to complete", "jobName", jobName)
-	err = utils.WaitForJob(ctx, r.Client, fio.Namespace, jobName, 5*time.Minute)
-
-	if err != nil {
-		logger.Error(err, "Failed while waiting for Fio job to complete")
-		fioCopy.Status.Status = "Failed"
-		fioCopy.Status.FailureCount++
-		fioCopy.Status.LastResult = fmt.Sprintf("Error waiting for Fio job: %v", err)
-
-		utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
-			Type:               "Failed",
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: now,
-			Reason:             "JobExecutionFailed",
-			Message:            fmt.Sprintf("Error waiting for Fio job: %v", err),
-		})
-
-		if updateErr := r.Status().Update(ctx, fioCopy); updateErr != nil {
-			logger.Error(updateErr, "Failed to update Fio status after job execution failure")
+	var job batchv1.Job
+	if err = r.Client.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: jobName}, &job); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("Fio job not found, creating...", "fio", req.Name, "jobName", jobName, "namespace", req.Namespace)
+			return ctrl.Result{}, nil
 		}
+		logger.Error(err, "Failed to get Job", "fio", req.Name, "jobName", jobName)
 		return ctrl.Result{RequeueAfter: time.Second * 30}, err
+	} else {
+		if job.Status.Succeeded > 0 {
+			logger.Info("Job completed successfully", "fio", req.Name, "jobName", jobName, "namespace", req.Namespace)
+		} else if job.Status.Failed > *job.Spec.BackoffLimit {
+			logger.Error(nil, "Job failed", "fio", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+		} else {
+			logger.Info("Job is still running", "fio", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"succeeded", job.Status.Succeeded, "failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+			return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+		}
 	}
+
+	//logger.Info("Waiting for Fio job to complete", "jobName", jobName)
+	//err = utils.WaitForJob(ctx, r.Client, fio.Namespace, jobName, 5*time.Minute)
+	//
+	//if err != nil {
+	//	logger.Error(err, "Failed while waiting for Fio job to complete")
+	//	fioCopy.Status.Status = "Failed"
+	//	fioCopy.Status.FailureCount++
+	//	fioCopy.Status.LastResult = fmt.Sprintf("Error waiting for Fio job: %v", err)
+	//
+	//	utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
+	//		Type:               "Failed",
+	//		Status:             metav1.ConditionTrue,
+	//		LastTransitionTime: now,
+	//		Reason:             "JobExecutionFailed",
+	//		Message:            fmt.Sprintf("Error waiting for Fio job: %v", err),
+	//	})
+	//
+	//	if updateErr := r.Status().Update(ctx, fioCopy); updateErr != nil {
+	//		logger.Error(updateErr, "Failed to update Fio status after job execution failure")
+	//	}
+	//	return ctrl.Result{RequeueAfter: time.Second * 30}, err
+	//}
 
 	jobOutput, err := utils.GetJobResults(ctx, r.Client, fio.Namespace, jobName)
 	if err != nil {

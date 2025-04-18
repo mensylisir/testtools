@@ -19,6 +19,8 @@ package controllers
 import (
 	"context"
 	"fmt"
+	batchv1 "k8s.io/api/batch/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"strconv"
 	"strings"
 	"time"
@@ -188,31 +190,52 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	pingCopy.Status.ExecutedCommand = fmt.Sprintf("ping %s", strings.Join(pingArgs, " "))
 	logger.Info("Setting executed command", "command", pingCopy.Status.ExecutedCommand)
 
-	// 等待 Job 完成
-	logger.Info("Waiting for Ping job to complete", "jobName", jobName)
-	err = utils.WaitForJob(ctx, r.Client, ping.Namespace, jobName, 5*time.Minute)
-	if err != nil {
-		logger.Error(err, "Failed while waiting for Ping job to complete")
-		pingCopy.Status.Status = "Failed"
-		pingCopy.Status.FailureCount++
-		pingCopy.Status.LastResult = fmt.Sprintf("Error waiting for Ping job: %v", err)
-
-		// 添加失败条件
-		utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
-			Type:               "Failed",
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: now,
-			Reason:             "JobExecutionFailed",
-			Message:            fmt.Sprintf("Ping测试执行失败: %v", err),
-		})
-
-		// 更新状态
-		if updateErr := r.Status().Update(ctx, pingCopy); updateErr != nil {
-			logger.Error(updateErr, "Failed to update Ping status after job execution failure")
+	var job batchv1.Job
+	if err = r.Client.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: jobName}, &job); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("Ping job not found, creating...", "ping", req.Name, "jobName", jobName, "namespace", req.Namespace)
+			return ctrl.Result{}, nil
 		}
-
+		logger.Error(err, "Failed to get Job", "ping", req.Name, "jobName", jobName)
 		return ctrl.Result{RequeueAfter: time.Second * 30}, err
+	} else {
+		if job.Status.Succeeded > 0 {
+			logger.Info("Job completed successfully", "ping", req.Name, "jobName", jobName, "namespace", req.Namespace)
+		} else if job.Status.Failed > *job.Spec.BackoffLimit {
+			logger.Error(nil, "Job failed", "ping", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+		} else {
+			logger.Info("Job is still running", "ping", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"succeeded", job.Status.Succeeded, "failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+			return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+		}
 	}
+
+	// 等待 Job 完成
+	//logger.Info("Waiting for Ping job to complete", "jobName", jobName)
+	//err = utils.WaitForJob(ctx, r.Client, ping.Namespace, jobName, 5*time.Minute)
+	//if err != nil {
+	//	logger.Error(err, "Failed while waiting for Ping job to complete")
+	//	pingCopy.Status.Status = "Failed"
+	//	pingCopy.Status.FailureCount++
+	//	pingCopy.Status.LastResult = fmt.Sprintf("Error waiting for Ping job: %v", err)
+	//
+	//	// 添加失败条件
+	//	utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
+	//		Type:               "Failed",
+	//		Status:             metav1.ConditionTrue,
+	//		LastTransitionTime: now,
+	//		Reason:             "JobExecutionFailed",
+	//		Message:            fmt.Sprintf("Ping测试执行失败: %v", err),
+	//	})
+	//
+	//	// 更新状态
+	//	if updateErr := r.Status().Update(ctx, pingCopy); updateErr != nil {
+	//		logger.Error(updateErr, "Failed to update Ping status after job execution failure")
+	//	}
+	//
+	//	return ctrl.Result{RequeueAfter: time.Second * 30}, err
+	//}
 
 	// 获取 Job 执行结果
 	jobOutput, err := utils.GetJobResults(ctx, r.Client, ping.Namespace, jobName)
@@ -548,6 +571,7 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 func (r *PingReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&testtoolsv1.Ping{}).
+		Owns(&batchv1.Job{}).
 		Complete(r)
 }
 

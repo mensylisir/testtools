@@ -21,5 +21,4 @@ spec:
   # 最多重试2次
   maxRetries: 2
   
-  # 每10秒执行一次测试
-  schedule: "10" 
+  image: "registry.dev.rdev.tech:18093/testtools-ping:v1"

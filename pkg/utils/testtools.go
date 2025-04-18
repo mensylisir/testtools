@@ -6,19 +6,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"regexp"
-	"strconv"
-	"strings"
-	"time"
-
 	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
+	"regexp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // FioOutput represents the structure of fio JSON output
@@ -108,6 +107,9 @@ func PrepareFioJob(ctx context.Context, k8sClient client.Client, fio *testtoolsv
 	// 使用固定格式的job名称，避免创建多个job
 	baseName := strings.TrimSuffix(fio.Name, "-job") // 移除可能存在的-job后缀
 	jobName := fmt.Sprintf("fio-%s-job", baseName)
+	if fio.Spec.Schedule != "" {
+		jobName = fmt.Sprintf("%s-%s-job", baseName, GenerateShortUID())
+	}
 
 	// 检查Job是否已存在
 	var existingJob batchv1.Job
@@ -120,28 +122,30 @@ func PrepareFioJob(ctx context.Context, k8sClient client.Client, fio *testtoolsv
 		// Job已存在，检查其状态
 		if existingJob.Status.Succeeded > 0 {
 			// Job已成功完成，可以删除并创建新Job
-			logger.Info("已存在已完成的Fio Job，将删除后重新创建",
+			logger.Info("已存在已完成的Fio Job",
 				"job", jobName,
 				"namespace", fio.Namespace)
 
-			if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
-				logger.Error(err, "删除已完成的Fio Job失败")
-				return "", err
-			}
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除已完成的Fio Job失败")
+			//	return "", err
+			//}
 			// 等待Job被删除
-			time.Sleep(2 * time.Second)
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
 		} else if existingJob.Status.Failed > 0 {
 			// Job已失败，可以删除并创建新Job
-			logger.Info("已存在失败的Fio Job，将删除后重新创建",
+			logger.Info("已存在失败的Fio Job",
 				"job", jobName,
 				"namespace", fio.Namespace)
 
-			if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
-				logger.Error(err, "删除失败的Fio Job失败")
-				return "", err
-			}
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除失败的Fio Job失败")
+			//	return "", err
+			//}
 			// 等待Job被删除
-			time.Sleep(2 * time.Second)
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
 		} else {
 			// Job正在运行，直接返回Job
 			logger.Info("Fio Job正在运行中，不需要重新创建",
@@ -361,6 +365,9 @@ func PrepareDigJob(ctx context.Context, k8sClient client.Client, dig *testtoolsv
 	// 使用固定格式的job名称，避免创建多个job
 	baseName := strings.TrimSuffix(dig.Name, "-job") // 移除可能存在的-job后缀
 	jobName := fmt.Sprintf("dig-%s-job", baseName)
+	if dig.Spec.Schedule != "" {
+		jobName = fmt.Sprintf("%s-%s-job", baseName, GenerateShortUID())
+	}
 
 	// 检查Job是否已存在
 	var existingJob batchv1.Job
@@ -373,26 +380,28 @@ func PrepareDigJob(ctx context.Context, k8sClient client.Client, dig *testtoolsv
 		// Job已存在，检查其状态
 		if existingJob.Status.Succeeded > 0 {
 			// Job已成功完成，可以删除并创建新Job
-			logger.Info("已存在已完成的Dig Job，将删除后重新创建",
+			logger.Info("已存在已完成的Dig Job",
 				"job", jobName,
 				"namespace", dig.Namespace)
-			if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
-				logger.Error(err, "删除已完成的Dig Job失败")
-				return "", err
-			}
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除已完成的Dig Job失败")
+			//	return "", err
+			//}
 			// 等待Job被删除
-			time.Sleep(2 * time.Second)
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
 		} else if existingJob.Status.Failed > 0 {
 			// Job已失败，可以删除并创建新Job
-			logger.Info("已存在失败的Dig Job，将删除后重新创建",
+			logger.Info("已存在失败的Dig Job",
 				"job", jobName,
 				"namespace", dig.Namespace)
-			if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
-				logger.Error(err, "删除失败的Dig Job失败")
-				return "", err
-			}
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除失败的Dig Job失败")
+			//	return "", err
+			//}
 			// 等待Job被删除
-			time.Sleep(2 * time.Second)
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
 		} else {
 			// Job正在运行，直接返回Job名称
 			logger.Info("Dig Job正在运行中，不需要重新创建",
@@ -682,6 +691,9 @@ func PreparePingJob(ctx context.Context, k8sClient client.Client, ping *testtool
 	// 创建Job名称 - 避免重复"-job"后缀
 	baseName := strings.TrimSuffix(ping.Name, "-job")
 	jobName := fmt.Sprintf("%s-job", baseName)
+	if ping.Spec.Schedule != "" {
+		jobName = fmt.Sprintf("%s-%s-job", baseName, GenerateShortUID())
+	}
 
 	// 检查Job是否已存在
 	var existingJob batchv1.Job
@@ -694,26 +706,28 @@ func PreparePingJob(ctx context.Context, k8sClient client.Client, ping *testtool
 		// Job已存在，检查其状态
 		if existingJob.Status.Succeeded > 0 {
 			// Job已成功完成，可以删除并创建新Job
-			logger.Info("已存在已完成的Ping Job，将删除后重新创建",
+			logger.Info("已存在已完成的Ping Job",
 				"job", jobName,
 				"namespace", ping.Namespace)
-			if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
-				logger.Error(err, "删除已完成的Ping Job失败")
-				return "", err
-			}
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除已完成的Ping Job失败")
+			//	return "", err
+			//}
 			// 等待Job被删除
-			time.Sleep(2 * time.Second)
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
 		} else if existingJob.Status.Failed > 0 {
 			// Job已失败，可以删除并创建新Job
-			logger.Info("已存在失败的Ping Job，将删除后重新创建",
+			logger.Info("已存在失败的Ping Job",
 				"job", jobName,
 				"namespace", ping.Namespace)
-			if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
-				logger.Error(err, "删除失败的Ping Job失败")
-				return "", err
-			}
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除失败的Ping Job失败")
+			//	return "", err
+			//}
 			// 等待Job被删除
-			time.Sleep(2 * time.Second)
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
 		} else {
 			// Job正在运行，直接返回Job名称
 			logger.Info("Ping Job正在运行中，不需要重新创建",
