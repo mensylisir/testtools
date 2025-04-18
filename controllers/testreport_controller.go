@@ -55,7 +55,7 @@ type TestReportReconciler struct {
 // +kubebuilder:rbac:groups=testtools.xiaoming.com,resources=digs,verbs=get;list;watch
 // +kubebuilder:rbac:groups=testtools.xiaoming.com,resources=digs/status,verbs=get
 // +kubebuilder:rbac:groups=testtools.xiaoming.com,resources=pings,verbs=get;list;watch
-// +kubebuilder:rbac:groups=testtools.xiaoming.com,resources=pings/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=testtools.xiaoming.com,resources=pings/status,verbs=get
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -246,7 +246,6 @@ func (r *TestReportReconciler) collectResults(ctx context.Context, testReport *t
 
 // collectDigResults 收集 Dig 资源的结果
 func (r *TestReportReconciler) collectDigResults(ctx context.Context, testReport *testtoolsv1.TestReport, selector testtoolsv1.ResourceSelector, logger logr.Logger) (bool, error) {
-	// 获取Dig资源
 	dig := &testtoolsv1.Dig{}
 	err := r.Get(ctx, types.NamespacedName{Name: selector.Name, Namespace: selector.Namespace}, dig)
 	if err != nil {
@@ -287,27 +286,9 @@ func (r *TestReportReconciler) collectDigResults(ctx context.Context, testReport
 		}
 	}
 
-	// 使用事件记录关联关系，并使用UpdateWithRetry安全地更新Dig资源的Status
+	// 使用事件记录关联关系
 	r.Recorder.Event(dig, corev1.EventTypeNormal, "CollectedByTestReport",
 		fmt.Sprintf("结果被测试报告 %s 收集", testReport.Name))
-
-	// 只有在TestReportName为空时才更新
-	if dig.Status.TestReportName == "" {
-		err = r.updateDigStatus(ctx, types.NamespacedName{Name: dig.Name, Namespace: dig.Namespace}, func(digObj *testtoolsv1.Dig) {
-			digObj.Status.TestReportName = testReport.Name
-		})
-		if err != nil {
-			logger.Error(err, "更新Dig资源的TestReportName失败",
-				"name", dig.Name,
-				"namespace", dig.Namespace)
-			// 继续处理，不要因为更新失败而中断
-		} else {
-			logger.Info("已更新Dig资源的TestReportName",
-				"name", dig.Name,
-				"namespace", dig.Namespace,
-				"reportName", testReport.Name)
-		}
-	}
 
 	// 添加结果
 	err = r.addDigResult(testReport, dig)
@@ -372,24 +353,6 @@ func (r *TestReportReconciler) collectFioResults(ctx context.Context, testReport
 	r.Recorder.Event(fio, corev1.EventTypeNormal, "CollectedByTestReport",
 		fmt.Sprintf("结果被测试报告 %s 收集", testReport.Name))
 
-	// 只有在TestReportName为空时才更新
-	if fio.Status.TestReportName == "" {
-		err = r.updateFioStatus(ctx, types.NamespacedName{Name: fio.Name, Namespace: fio.Namespace}, func(fioObj *testtoolsv1.Fio) {
-			fioObj.Status.TestReportName = testReport.Name
-		})
-		if err != nil {
-			logger.Error(err, "更新Fio资源的TestReportName失败",
-				"name", fio.Name,
-				"namespace", fio.Namespace)
-			// 继续处理，不要因为更新失败而中断
-		} else {
-			logger.Info("已更新Fio资源的TestReportName",
-				"name", fio.Name,
-				"namespace", fio.Namespace,
-				"reportName", testReport.Name)
-		}
-	}
-
 	// 添加结果
 	err = r.addFioResult(testReport, fio)
 	if err != nil {
@@ -430,27 +393,9 @@ func (r *TestReportReconciler) collectPingResults(ctx context.Context, testRepor
 			"namespace", ping.Namespace,
 			"lastExecutionTime", ping.Status.LastExecutionTime)
 
-		// 使用事件记录关联关系，并使用UpdateWithRetry安全地更新Ping资源的Status
+		// 使用事件记录关联关系
 		r.Recorder.Event(&ping, corev1.EventTypeNormal, "CollectedByTestReport",
 			fmt.Sprintf("结果被测试报告 %s 收集", testReport.Name))
-
-		// 只有在TestReportName为空时才更新
-		if ping.Status.TestReportName == "" {
-			err = r.updatePingStatus(ctx, types.NamespacedName{Name: ping.Name, Namespace: ping.Namespace}, func(pingObj *testtoolsv1.Ping) {
-				pingObj.Status.TestReportName = testReport.Name
-			})
-			if err != nil {
-				logger.Error(err, "更新Ping资源的TestReportName失败",
-					"name", ping.Name,
-					"namespace", ping.Namespace)
-				// 继续处理，不要因为更新失败而中断
-			} else {
-				logger.Info("已更新Ping资源的TestReportName",
-					"name", ping.Name,
-					"namespace", ping.Namespace,
-					"reportName", testReport.Name)
-			}
-		}
 
 		// 添加结果到测试报告
 		if err := r.addPingResult(testReport, &ping); err != nil {
@@ -489,27 +434,9 @@ func (r *TestReportReconciler) collectPingResults(ctx context.Context, testRepor
 	for i := range pingList.Items {
 		ping := &pingList.Items[i]
 
-		// 使用事件记录关联关系，并使用UpdateWithRetry安全地更新Ping资源的Status
+		// 使用事件记录关联关系
 		r.Recorder.Event(ping, corev1.EventTypeNormal, "CollectedByTestReport",
 			fmt.Sprintf("结果被测试报告 %s 收集", testReport.Name))
-
-		// 只有在TestReportName为空时才更新
-		if ping.Status.TestReportName == "" {
-			err := r.updatePingStatus(ctx, types.NamespacedName{Name: ping.Name, Namespace: ping.Namespace}, func(pingObj *testtoolsv1.Ping) {
-				pingObj.Status.TestReportName = testReport.Name
-			})
-			if err != nil {
-				logger.Error(err, "更新Ping资源的TestReportName失败",
-					"name", ping.Name,
-					"namespace", ping.Namespace)
-				// 继续处理，不要因为更新失败而中断
-			} else {
-				logger.Info("已更新Ping资源的TestReportName",
-					"name", ping.Name,
-					"namespace", ping.Namespace,
-					"reportName", testReport.Name)
-			}
-		}
 
 		if err := r.addPingResult(testReport, ping); err != nil {
 			logger.Error(err, "添加Ping结果失败", "ping", ping.Name)
@@ -681,68 +608,6 @@ func extractFirstLineContaining(text string, substring string) string {
 		}
 	}
 	return ""
-}
-
-// updatePingStatus 使用乐观锁更新Ping状态
-func (r *TestReportReconciler) updatePingStatus(ctx context.Context, name types.NamespacedName, updateFn func(*testtoolsv1.Ping)) error {
-	logger := log.FromContext(ctx)
-	retries := 3
-	backoff := 100 * time.Millisecond
-
-	for i := 0; i < retries; i++ {
-		// 每次都获取最新版本
-		var ping testtoolsv1.Ping
-		if err := r.Get(ctx, name, &ping); err != nil {
-			if errors.IsNotFound(err) {
-				logger.Info("无法找到要更新的Ping资源", "name", name.Name, "namespace", name.Namespace)
-				return err
-			}
-			logger.Error(err, "获取Ping资源失败", "name", name.Name, "namespace", name.Namespace)
-			return err
-		}
-
-		// 深拷贝当前状态以便比较
-		oldStatus := ping.Status.DeepCopy()
-
-		// 应用更新函数
-		updateFn(&ping)
-
-		// 如果状态实际未变化，无需更新
-		if reflect.DeepEqual(oldStatus, &ping.Status) {
-			logger.Info("Ping状态未变化，跳过更新", "name", name.Name, "namespace", name.Namespace)
-			return nil
-		}
-
-		// 尝试更新
-		if err := r.Status().Update(ctx, &ping); err != nil {
-			if errors.IsConflict(err) {
-				// 冲突则重试
-				logger.Info("更新Ping状态时发生冲突，准备重试",
-					"attempt", i+1,
-					"maxRetries", retries,
-					"name", name.Name,
-					"namespace", name.Namespace)
-
-				// 使用指数退避策略
-				if i < retries-1 {
-					time.Sleep(backoff)
-					backoff *= 2 // 指数增长
-					continue
-				}
-			}
-
-			logger.Error(err, "更新Ping状态失败",
-				"name", name.Name,
-				"namespace", name.Namespace,
-				"attempt", i+1)
-			return err
-		}
-
-		logger.Info("成功更新Ping状态", "name", name.Name, "namespace", name.Namespace)
-		return nil
-	}
-
-	return fmt.Errorf("在%d次尝试后仍无法更新Ping状态", retries)
 }
 
 // addPingResult adds a Ping resource's result to the test report
@@ -986,130 +851,6 @@ func extractPingLines(text string, maxLines int) []string {
 	return result
 }
 
-// updateDigStatus 使用乐观锁更新Dig状态
-func (r *TestReportReconciler) updateDigStatus(ctx context.Context, name types.NamespacedName, updateFn func(*testtoolsv1.Dig)) error {
-	logger := log.FromContext(ctx)
-	retries := 3
-	backoff := 100 * time.Millisecond
-
-	for i := 0; i < retries; i++ {
-		// 每次都获取最新版本
-		var dig testtoolsv1.Dig
-		if err := r.Get(ctx, name, &dig); err != nil {
-			if errors.IsNotFound(err) {
-				logger.Info("无法找到要更新的Dig资源", "name", name.Name, "namespace", name.Namespace)
-				return err
-			}
-			logger.Error(err, "获取Dig资源失败", "name", name.Name, "namespace", name.Namespace)
-			return err
-		}
-
-		// 深拷贝当前状态以便比较
-		oldStatus := dig.Status.DeepCopy()
-
-		// 应用更新函数
-		updateFn(&dig)
-
-		// 如果状态实际未变化，无需更新
-		if reflect.DeepEqual(oldStatus, &dig.Status) {
-			logger.Info("Dig状态未变化，跳过更新", "name", name.Name, "namespace", name.Namespace)
-			return nil
-		}
-
-		// 尝试更新
-		if err := r.Status().Update(ctx, &dig); err != nil {
-			if errors.IsConflict(err) {
-				// 冲突则重试
-				logger.Info("更新Dig状态时发生冲突，准备重试",
-					"attempt", i+1,
-					"maxRetries", retries,
-					"name", name.Name,
-					"namespace", name.Namespace)
-
-				// 使用指数退避策略
-				if i < retries-1 {
-					time.Sleep(backoff)
-					backoff *= 2 // 指数增长
-					continue
-				}
-			}
-
-			logger.Error(err, "更新Dig状态失败",
-				"name", name.Name,
-				"namespace", name.Namespace,
-				"attempt", i+1)
-			return err
-		}
-
-		logger.Info("成功更新Dig状态", "name", name.Name, "namespace", name.Namespace)
-		return nil
-	}
-
-	return fmt.Errorf("在%d次尝试后仍无法更新Dig状态", retries)
-}
-
-// updateFioStatus 使用乐观锁更新Fio状态
-func (r *TestReportReconciler) updateFioStatus(ctx context.Context, name types.NamespacedName, updateFn func(*testtoolsv1.Fio)) error {
-	logger := log.FromContext(ctx)
-	retries := 3
-	backoff := 100 * time.Millisecond
-
-	for i := 0; i < retries; i++ {
-		// 每次都获取最新版本
-		var fio testtoolsv1.Fio
-		if err := r.Get(ctx, name, &fio); err != nil {
-			if errors.IsNotFound(err) {
-				logger.Info("无法找到要更新的Fio资源", "name", name.Name, "namespace", name.Namespace)
-				return err
-			}
-			logger.Error(err, "获取Fio资源失败", "name", name.Name, "namespace", name.Namespace)
-			return err
-		}
-
-		// 深拷贝当前状态以便比较
-		oldStatus := fio.Status.DeepCopy()
-
-		// 应用更新函数
-		updateFn(&fio)
-
-		// 如果状态实际未变化，无需更新
-		if reflect.DeepEqual(oldStatus, &fio.Status) {
-			logger.Info("Fio状态未变化，跳过更新", "name", name.Name, "namespace", name.Namespace)
-			return nil
-		}
-
-		// 尝试更新
-		if err := r.Status().Update(ctx, &fio); err != nil {
-			if errors.IsConflict(err) {
-				// 冲突则重试
-				logger.Info("更新Fio状态时发生冲突，准备重试",
-					"attempt", i+1,
-					"maxRetries", retries,
-					"name", name.Name,
-					"namespace", name.Namespace)
-
-				// 使用指数退避策略
-				if i < retries-1 {
-					time.Sleep(backoff)
-					backoff *= 2 // 指数增长
-					continue
-				}
-			}
-
-			logger.Error(err, "更新Fio状态失败",
-				"name", name.Name,
-				"namespace", name.Namespace,
-				"attempt", i+1)
-			return err
-		}
-
-		logger.Info("成功更新Fio状态", "name", name.Name, "namespace", name.Namespace)
-		return nil
-	}
-
-	return fmt.Errorf("在%d次尝试后仍无法更新Fio状态", retries)
-}
-
 // isTestReportStatusEqual 检查两个测试报告状态是否相等
 func (r *TestReportReconciler) isTestReportStatusEqual(oldStatus *testtoolsv1.TestReportStatus, newStatus *testtoolsv1.TestReportStatus) bool {
 	// 比较基本字段
@@ -1238,7 +979,6 @@ func setTestReportCondition(testReport *testtoolsv1.TestReport, condition metav1
 
 // findTestReportForResource 查找与资源相关的TestReport
 func (r *TestReportReconciler) findTestReportForResource(ctx context.Context, obj client.Object) []reconcile.Request {
-	// 获取资源信息
 	logger := log.FromContext(ctx)
 
 	// 直接获取GVK
@@ -1247,7 +987,7 @@ func (r *TestReportReconciler) findTestReportForResource(ctx context.Context, ob
 	// 从object获取metaObject
 	metaObj, ok := obj.(metav1.Object)
 	if !ok {
-		logger.Error(nil, "object is not a metav1.Object")
+		logger.Error(fmt.Errorf("object is not a metav1.Object"), "无法获取元数据")
 		return nil
 	}
 
@@ -1271,29 +1011,25 @@ func (r *TestReportReconciler) findTestReportForResource(ctx context.Context, ob
 	}
 
 	// 判断是否应该创建新的TestReport
-	if r.shouldCreateTestReport(obj) {
+	if r.shouldCreateTestReport(ctx, obj) {
 		logger.Info("为资源创建新的TestReport",
 			"kind", resourceKind,
 			"name", resourceName,
 			"namespace", resourceNamespace)
 
-		// 异步创建TestReport，避免阻塞当前处理
-		go func() {
-			ctxTimeout, cancel := context.WithTimeout(context.Background(), time.Second*10)
-			defer cancel()
-
-			testReport, err := r.createTestReportForResource(ctxTimeout, obj)
-			if err != nil {
-				logger.Error(err, "创建TestReport失败",
-					"kind", resourceKind,
-					"name", resourceName)
-			} else {
-				logger.Info("成功创建TestReport",
-					"testReport", testReport.Name,
-					"kind", resourceKind,
-					"name", resourceName)
-			}
-		}()
+		// 创建TestReport，避免异步可能导致的问题
+		testReport, err := r.createTestReportForResource(ctx, obj)
+		if err != nil {
+			logger.Error(err, "创建TestReport失败",
+				"kind", resourceKind,
+				"name", resourceName)
+		} else {
+			logger.Info("成功创建TestReport",
+				"testReport", testReport.Name,
+				"kind", resourceKind,
+				"name", resourceName)
+			// 移除对markResourceWithTestReport的调用，各资源控制器自行负责设置TestReportName
+		}
 	}
 
 	// 查找引用了该资源的TestReport
@@ -1331,9 +1067,9 @@ func (r *TestReportReconciler) findTestReportForResource(ctx context.Context, ob
 }
 
 // shouldCreateTestReport 判断是否应该为资源创建新的TestReport
-func (r *TestReportReconciler) shouldCreateTestReport(obj client.Object) bool {
+func (r *TestReportReconciler) shouldCreateTestReport(ctx context.Context, obj client.Object) bool {
 	// 打印详细的日志用于排查问题
-	logger := log.FromContext(context.Background())
+	logger := log.FromContext(ctx)
 
 	// 从object获取metaObject
 	metaObj, ok := obj.(metav1.Object)
@@ -1362,54 +1098,74 @@ func (r *TestReportReconciler) shouldCreateTestReport(obj client.Object) bool {
 		}
 	}
 
-	// 详细记录资源信息
-	logger.Info("判断是否应该为资源创建TestReport",
+	// 打印资源详细信息，用于调试
+	logger.Info("检查资源是否需要创建TestReport",
 		"kind", resourceKind,
 		"name", resourceName,
-		"namespace", resourceNamespace)
+		"namespace", resourceNamespace,
+		"annotations", metaObj.GetAnnotations(),
+		"labels", metaObj.GetLabels())
 
-	// 检查资源的状态和TestReportName
+	// 获取资源的状态
 	var status string
 	var testReportName string
 
-	// 根据资源类型获取状态和TestReportName
-	switch resourceKind {
-	case "Dig":
-		if dig, ok := obj.(*testtoolsv1.Dig); ok {
-			status = dig.Status.Status
-			testReportName = dig.Status.TestReportName
-			logger.Info("检查Dig状态",
-				"status", status,
-				"testReportName", testReportName)
-		}
-	case "Ping":
-		if ping, ok := obj.(*testtoolsv1.Ping); ok {
-			status = ping.Status.Status
-			testReportName = ping.Status.TestReportName
-			logger.Info("检查Ping状态",
-				"status", status,
-				"testReportName", testReportName)
-		}
-	case "Fio":
-		if fio, ok := obj.(*testtoolsv1.Fio); ok {
-			status = fio.Status.Status
-			testReportName = fio.Status.TestReportName
-			logger.Info("检查Fio状态",
-				"status", status,
-				"testReportName", testReportName)
-		}
+	// 根据资源类型获取Status和TestReportName
+	switch v := obj.(type) {
+	case *testtoolsv1.Dig:
+		status = string(v.Status.Status)
+		testReportName = v.Status.TestReportName
+	case *testtoolsv1.Ping:
+		status = string(v.Status.Status)
+		testReportName = v.Status.TestReportName
+	case *testtoolsv1.Fio:
+		status = string(v.Status.Status)
+		testReportName = v.Status.TestReportName
+	default:
+		logger.Error(fmt.Errorf("unsupported resource type"), "资源类型不支持自动创建TestReport",
+			"kind", resourceKind)
+		return false
 	}
 
-	// 只有当资源状态为Succeeded或Failed，且没有关联TestReport时才创建
-	shouldCreate := (status == "Succeeded" || status == "Failed") && testReportName == ""
-	logger.Info("决定是否创建TestReport",
+	logger.Info("资源状态信息",
 		"kind", resourceKind,
 		"name", resourceName,
-		"shouldCreate", shouldCreate,
 		"status", status,
 		"testReportName", testReportName)
 
-	return shouldCreate
+	// 修改判断逻辑：只要TestReportName不为空，就应该创建TestReport
+	// 不再要求status必须是Succeeded或Failed
+	if testReportName != "" {
+		// 检查是否已经存在对应的TestReport
+		existingReport := &testtoolsv1.TestReport{}
+		err := r.Get(ctx, types.NamespacedName{Name: testReportName, Namespace: resourceNamespace}, existingReport)
+		if err == nil {
+			// TestReport已存在，不需要再创建
+			logger.Info("TestReport已存在，不需要创建",
+				"testReportName", testReportName,
+				"kind", resourceKind,
+				"name", resourceName)
+			return false
+		} else if !errors.IsNotFound(err) {
+			// 获取TestReport时出错（不是NotFound错误）
+			logger.Error(err, "检查TestReport是否存在时出错",
+				"testReportName", testReportName)
+			return false
+		}
+
+		// TestReport不存在，需要创建
+		logger.Info("发现需要创建的TestReport",
+			"testReportName", testReportName,
+			"kind", resourceKind,
+			"name", resourceName)
+		return true
+	}
+
+	// TestReportName为空，不创建TestReport
+	logger.Info("TestReportName为空，不创建TestReport",
+		"kind", resourceKind,
+		"name", resourceName)
+	return false
 }
 
 // createTestReportForResource 为资源创建新的TestReport
@@ -1426,7 +1182,54 @@ func (r *TestReportReconciler) createTestReportForResource(ctx context.Context, 
 	resourceName := metaObj.GetName()
 	resourceNamespace := metaObj.GetNamespace()
 	resourceKind := obj.GetObjectKind().GroupVersionKind().Kind
-	reportName := fmt.Sprintf("%s-%s-report", strings.ToLower(resourceKind), resourceName)
+
+	// 获取 GVK 信息
+	gvk := obj.GetObjectKind().GroupVersionKind()
+	apiVersion := ""
+
+	// 如果 GVK 为空，从对象类型推断
+	if gvk.Empty() {
+		switch obj.(type) {
+		case *testtoolsv1.Dig:
+			resourceKind = "Dig"
+			apiVersion = "testtools.xiaoming.com/v1"
+		case *testtoolsv1.Ping:
+			resourceKind = "Ping"
+			apiVersion = "testtools.xiaoming.com/v1"
+		case *testtoolsv1.Fio:
+			resourceKind = "Fio"
+			apiVersion = "testtools.xiaoming.com/v1"
+		default:
+			return nil, fmt.Errorf("unknown resource type")
+		}
+	} else {
+		apiVersion = gvk.GroupVersion().String()
+		resourceKind = gvk.Kind
+	}
+
+	// 修复: 确保 reportName 不以连字符开头，符合 Kubernetes 命名规则
+	kindLower := strings.ToLower(resourceKind)
+	// 确保名称符合规范: 只能包含小写字母、数字和连字符，不能以连字符开头或结尾
+	reportName := fmt.Sprintf("%s-%s-report", kindLower, resourceName)
+	if strings.HasPrefix(reportName, "-") {
+		reportName = fmt.Sprintf("%s%s-report", kindLower, resourceName)
+	}
+
+	// 检查TestReport是否已存在
+	existingReport := &testtoolsv1.TestReport{}
+	err := r.Get(ctx, types.NamespacedName{Name: reportName, Namespace: resourceNamespace}, existingReport)
+	if err == nil {
+		// TestReport已存在，直接返回
+		logger.Info("TestReport已存在，跳过创建",
+			"testReport", reportName,
+			"kind", resourceKind,
+			"name", resourceName)
+		return existingReport, nil
+	} else if !errors.IsNotFound(err) {
+		// 发生了除"not found"之外的错误
+		logger.Error(err, "检查TestReport是否存在时出错")
+		return nil, err
+	}
 
 	// 创建TestReport
 	testReport := &testtoolsv1.TestReport{
@@ -1436,7 +1239,7 @@ func (r *TestReportReconciler) createTestReportForResource(ctx context.Context, 
 			// 添加所有者引用，使TestReport随其所有者资源一起删除
 			OwnerReferences: []metav1.OwnerReference{
 				{
-					APIVersion: obj.GetObjectKind().GroupVersionKind().GroupVersion().String(),
+					APIVersion: apiVersion,
 					Kind:       resourceKind,
 					Name:       resourceName,
 					UID:        metaObj.GetUID(),
@@ -1461,13 +1264,27 @@ func (r *TestReportReconciler) createTestReportForResource(ctx context.Context, 
 
 	// 创建TestReport
 	if err := r.Create(ctx, testReport); err != nil {
+		// 如果是因为资源已存在导致的错误，忽略它
+		if errors.IsAlreadyExists(err) {
+			logger.Info("TestReport已存在，另一个协程已创建",
+				"testReport", reportName,
+				"kind", resourceKind,
+				"name", resourceName)
+
+			// 尝试获取这个已存在的TestReport
+			existingReport := &testtoolsv1.TestReport{}
+			if getErr := r.Get(ctx, types.NamespacedName{Name: reportName, Namespace: resourceNamespace}, existingReport); getErr == nil {
+				return existingReport, nil
+			}
+			// 如果无法获取，返回nil和原始错误
+			return nil, err
+		}
+
 		logger.Error(err, "创建TestReport失败")
 		return nil, err
 	}
 
-	// 不再主动修改其他资源的状态，遵循Kubernetes Operator最佳实践
-	// 每个资源的控制器应负责更新自己的状态，避免状态冲突
-
+	// 记录成功信息
 	logger.Info("成功创建TestReport",
 		"testReport", reportName,
 		"kind", resourceKind,

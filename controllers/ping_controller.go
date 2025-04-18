@@ -17,10 +17,8 @@ limitations under the License.
 package controllers
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -29,19 +27,24 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
 	"github.com/xiaoming/testtools/pkg/utils"
-	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/client-go/tools/record"
 )
+
+// PingFinalizerName 是用于Ping资源finalizer的名称
+const PingFinalizerName = "ping.testtools.xiaoming.com/finalizer"
 
 // PingReconciler reconciles a Ping object
 type PingReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
 
 // +kubebuilder:rbac:groups=testtools.xiaoming.com,resources=pings,verbs=get;list;watch;create;update;patch;delete
@@ -72,38 +75,31 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		return ctrl.Result{}, err
 	}
 
-	// 添加finalizer处理逻辑
-	pingFinalizer := "testtools.xiaoming.com/ping-finalizer"
-
-	// 检查对象是否正在被删除
-	if ping.ObjectMeta.DeletionTimestamp.IsZero() {
-		// 对象没有被标记为删除，确保它有我们的finalizer
-		if !utils.ContainsString(ping.GetFinalizers(), pingFinalizer) {
-			logger.Info("添加finalizer", "finalizer", pingFinalizer)
-			ping.SetFinalizers(append(ping.GetFinalizers(), pingFinalizer))
-			if err := r.Update(ctx, &ping); err != nil {
-				return ctrl.Result{}, err
-			}
-			// 已更新finalizer，重新触发reconcile
-			return ctrl.Result{}, nil
-		}
-	} else {
-		// 对象正在被删除
-		if utils.ContainsString(ping.GetFinalizers(), pingFinalizer) {
-			// 执行清理操作
+	// 处理资源删除
+	if !ping.DeletionTimestamp.IsZero() {
+		if controllerutil.ContainsFinalizer(&ping, PingFinalizerName) {
+			logger.Info("处理Ping资源删除", "pingName", ping.Name)
 			if err := r.cleanupResources(ctx, &ping); err != nil {
 				logger.Error(err, "清理资源失败")
 				return ctrl.Result{}, err
 			}
-
-			// 清理完成后，移除finalizer
-			ping.SetFinalizers(utils.RemoveString(ping.GetFinalizers(), pingFinalizer))
+			controllerutil.RemoveFinalizer(&ping, PingFinalizerName)
 			if err := r.Update(ctx, &ping); err != nil {
+				logger.Error(err, "移除finalizer失败")
 				return ctrl.Result{}, err
 			}
-			logger.Info("已移除finalizer，允许资源被删除")
-			return ctrl.Result{}, nil
 		}
+		return ctrl.Result{}, nil
+	}
+
+	// 确保finalizer存在
+	if !controllerutil.ContainsFinalizer(&ping, PingFinalizerName) {
+		controllerutil.AddFinalizer(&ping, PingFinalizerName)
+		if err := r.Update(ctx, &ping); err != nil {
+			logger.Error(err, "添加finalizer失败")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// 检查是否需要执行测试
@@ -226,6 +222,11 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 		pingCopy.Status.FailureCount++
 		pingCopy.Status.LastResult = fmt.Sprintf("Error getting job results: %v", err)
 
+		// 设置TestReportName，即使失败也设置
+		if pingCopy.Status.TestReportName == "" {
+			pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
+		}
+
 		// 添加失败条件
 		utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
 			Type:               "Failed",
@@ -260,7 +261,7 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 
 		// 设置TestReportName，以便TestReport控制器可以找到它
 		if pingCopy.Status.TestReportName == "" {
-			pingCopy.Status.TestReportName = fmt.Sprintf("ping-%s-report", ping.Name)
+			pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
 		}
 	}
 
@@ -313,7 +314,7 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				// 设置TestReportName，使TestReport控制器能够自动创建报告
 				// 如果TestReportName为空，则设置为默认格式
 				if pingCopy.Status.TestReportName == "" {
-					pingCopy.Status.TestReportName = fmt.Sprintf("ping-%s-report", ping.Name)
+					pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
 				}
 
 				// 确保所有重要字段都有值，即使为0也要明确设置
@@ -340,6 +341,11 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 				// 错误状态更新
 				pingCopy.Status.Status = "Failed"
 				pingCopy.Status.FailureCount = ping.Status.FailureCount + 1
+
+				// 设置TestReportName，即使失败也设置
+				if pingCopy.Status.TestReportName == "" {
+					pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
+				}
 
 				// 标记失败状态
 				utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
@@ -393,150 +399,150 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	return ctrl.Result{}, nil
 }
 
-// executePing执行Ping测试并返回结果
-func (r *PingReconciler) executePing(ctx context.Context, ping *testtoolsv1.Ping) (bool, string, testtoolsv1.PingStatus, error) {
-	logger := log.FromContext(ctx)
-	start := time.Now()
-	stats := testtoolsv1.PingStatus{}
-
-	// 验证参数
-	if ping.Spec.Host == "" {
-		logger.Error(fmt.Errorf("host is required"), "Invalid Ping specification",
-			"ping", ping.Name,
-			"namespace", ping.Namespace)
-		return false, "Host is required", stats, fmt.Errorf("host is required")
-	}
-
-	// 构建 ping 命令
-	args := r.buildPingArgs(ping)
-	logger.V(1).Info("Executing ping command",
-		"args", args,
-		"host", ping.Spec.Host,
-		"count", ping.Spec.Count)
-
-	// 创建命令
-	cmd := exec.Command("ping", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	// 执行命令
-	cmdStr := fmt.Sprintf("ping %s", strings.Join(args, " "))
-	logger.V(1).Info("Starting ping execution", "command", cmdStr)
-
-	err := cmd.Run()
-	executionTime := time.Since(start)
-	exitCode := -1
-	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
-	}
-
-	// 处理执行结果
-	stdoutStr := stdout.String()
-	stderrStr := stderr.String()
-
-	if err != nil {
-		logger.Error(err, "Failed to execute ping command",
-			"stderr", stderrStr,
-			"stdout", stdoutStr,
-			"exitCode", exitCode,
-			"duration", executionTime.String())
-
-		result := stderrStr
-		if result == "" {
-			result = stdoutStr
-		}
-		return false, result, stats, fmt.Errorf("ping command failed: %w (exit code: %d)", err, exitCode)
-	}
-
-	// 成功执行
-	output := stdoutStr
-
-	// 使用utils中的ParsePingOutput，而不是本地的parsePingOutput
-	pingOutput := utils.ParsePingOutput(output, ping.Spec.Host)
-	stats = utils.ExtractPingStats(pingOutput)
-
-	logger.Info("Ping command executed successfully",
-		"duration", executionTime.String(),
-		"packetLoss", pingOutput.PacketLoss,
-		"avgRtt", pingOutput.AvgRtt)
-
-	return true, output, stats, nil
-}
+//// executePing执行Ping测试并返回结果
+//func (r *PingReconciler) executePing(ctx context.Context, ping *testtoolsv1.Ping) (bool, string, testtoolsv1.PingStatus, error) {
+//	logger := log.FromContext(ctx)
+//	start := time.Now()
+//	stats := testtoolsv1.PingStatus{}
+//
+//	// 验证参数
+//	if ping.Spec.Host == "" {
+//		logger.Error(fmt.Errorf("host is required"), "Invalid Ping specification",
+//			"ping", ping.Name,
+//			"namespace", ping.Namespace)
+//		return false, "Host is required", stats, fmt.Errorf("host is required")
+//	}
+//
+//	// 构建 ping 命令
+//	args := r.buildPingArgs(ping)
+//	logger.V(1).Info("Executing ping command",
+//		"args", args,
+//		"host", ping.Spec.Host,
+//		"count", ping.Spec.Count)
+//
+//	// 创建命令
+//	cmd := exec.Command("ping", args...)
+//	var stdout, stderr bytes.Buffer
+//	cmd.Stdout = &stdout
+//	cmd.Stderr = &stderr
+//
+//	// 执行命令
+//	cmdStr := fmt.Sprintf("ping %s", strings.Join(args, " "))
+//	logger.V(1).Info("Starting ping execution", "command", cmdStr)
+//
+//	err := cmd.Run()
+//	executionTime := time.Since(start)
+//	exitCode := -1
+//	if cmd.ProcessState != nil {
+//		exitCode = cmd.ProcessState.ExitCode()
+//	}
+//
+//	// 处理执行结果
+//	stdoutStr := stdout.String()
+//	stderrStr := stderr.String()
+//
+//	if err != nil {
+//		logger.Error(err, "Failed to execute ping command",
+//			"stderr", stderrStr,
+//			"stdout", stdoutStr,
+//			"exitCode", exitCode,
+//			"duration", executionTime.String())
+//
+//		result := stderrStr
+//		if result == "" {
+//			result = stdoutStr
+//		}
+//		return false, result, stats, fmt.Errorf("ping command failed: %w (exit code: %d)", err, exitCode)
+//	}
+//
+//	// 成功执行
+//	output := stdoutStr
+//
+//	// 使用utils中的ParsePingOutput，而不是本地的parsePingOutput
+//	pingOutput := utils.ParsePingOutput(output, ping.Spec.Host)
+//	stats = utils.ExtractPingStats(pingOutput)
+//
+//	logger.Info("Ping command executed successfully",
+//		"duration", executionTime.String(),
+//		"packetLoss", pingOutput.PacketLoss,
+//		"avgRtt", pingOutput.AvgRtt)
+//
+//	return true, output, stats, nil
+//}
 
 // buildPingArgs builds the arguments for the ping command
-func (r *PingReconciler) buildPingArgs(ping *testtoolsv1.Ping) []string {
-	var args []string
-
-	// Add the count parameter
-	if ping.Spec.Count > 0 {
-		args = append(args, "-c", strconv.Itoa(int(ping.Spec.Count)))
-	}
-
-	// Add the interval parameter (in seconds)
-	if ping.Spec.Interval > 0 {
-		args = append(args, "-i", strconv.Itoa(int(ping.Spec.Interval)))
-	}
-
-	// Add the timeout parameter (in seconds)
-	if ping.Spec.Timeout > 0 {
-		args = append(args, "-W", strconv.Itoa(int(ping.Spec.Timeout)))
-	}
-
-	// Add the packet size parameter
-	if ping.Spec.PacketSize > 0 {
-		args = append(args, "-s", strconv.Itoa(int(ping.Spec.PacketSize)))
-	}
-
-	// Add the TTL parameter
-	if ping.Spec.TTL > 0 {
-		args = append(args, "-t", strconv.Itoa(int(ping.Spec.TTL)))
-	}
-
-	// Add the IPv4 only parameter
-	if ping.Spec.UseIPv4Only {
-		args = append(args, "-4")
-	}
-
-	// Add the IPv6 only parameter
-	if ping.Spec.UseIPv6Only {
-		args = append(args, "-6")
-	}
-
-	// Add the do not fragment parameter
-	if ping.Spec.DoNotFragment {
-		args = append(args, "-M", "do")
-	}
-
-	// Finally, add the host
-	args = append(args, ping.Spec.Host)
-
-	return args
-}
+//func (r *PingReconciler) buildPingArgs(ping *testtoolsv1.Ping) []string {
+//	var args []string
+//
+//	// Add the count parameter
+//	if ping.Spec.Count > 0 {
+//		args = append(args, "-c", strconv.Itoa(int(ping.Spec.Count)))
+//	}
+//
+//	// Add the interval parameter (in seconds)
+//	if ping.Spec.Interval > 0 {
+//		args = append(args, "-i", strconv.Itoa(int(ping.Spec.Interval)))
+//	}
+//
+//	// Add the timeout parameter (in seconds)
+//	if ping.Spec.Timeout > 0 {
+//		args = append(args, "-W", strconv.Itoa(int(ping.Spec.Timeout)))
+//	}
+//
+//	// Add the packet size parameter
+//	if ping.Spec.PacketSize > 0 {
+//		args = append(args, "-s", strconv.Itoa(int(ping.Spec.PacketSize)))
+//	}
+//
+//	// Add the TTL parameter
+//	if ping.Spec.TTL > 0 {
+//		args = append(args, "-t", strconv.Itoa(int(ping.Spec.TTL)))
+//	}
+//
+//	// Add the IPv4 only parameter
+//	if ping.Spec.UseIPv4Only {
+//		args = append(args, "-4")
+//	}
+//
+//	// Add the IPv6 only parameter
+//	if ping.Spec.UseIPv6Only {
+//		args = append(args, "-6")
+//	}
+//
+//	// Add the do not fragment parameter
+//	if ping.Spec.DoNotFragment {
+//		args = append(args, "-M", "do")
+//	}
+//
+//	// Finally, add the host
+//	args = append(args, ping.Spec.Host)
+//
+//	return args
+//}
 
 // getExitCode extracts the exit code from an exec.ExitError
-func getExitCode(err error) int {
-	if err == nil {
-		return 0
-	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		return exitErr.ExitCode()
-	}
-	return -1
-}
+//func getExitCode(err error) int {
+//	if err == nil {
+//		return 0
+//	}
+//	if exitErr, ok := err.(*exec.ExitError); ok {
+//		return exitErr.ExitCode()
+//	}
+//	return -1
+//}
 
 // statusEqual checks if two PingStatus are equal
-func pingStatusEqual(a, b testtoolsv1.PingStatus) bool {
-	return a.Status == b.Status &&
-		a.QueryCount == b.QueryCount &&
-		a.SuccessCount == b.SuccessCount &&
-		a.FailureCount == b.FailureCount &&
-		a.PacketLoss == b.PacketLoss &&
-		a.MinRtt == b.MinRtt &&
-		a.AvgRtt == b.AvgRtt &&
-		a.MaxRtt == b.MaxRtt &&
-		a.TestReportName == b.TestReportName
-}
+//func pingStatusEqual(a, b testtoolsv1.PingStatus) bool {
+//	return a.Status == b.Status &&
+//		a.QueryCount == b.QueryCount &&
+//		a.SuccessCount == b.SuccessCount &&
+//		a.FailureCount == b.FailureCount &&
+//		a.PacketLoss == b.PacketLoss &&
+//		a.MinRtt == b.MinRtt &&
+//		a.AvgRtt == b.AvgRtt &&
+//		a.MaxRtt == b.MaxRtt &&
+//		a.TestReportName == b.TestReportName
+//}
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *PingReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -546,62 +552,35 @@ func (r *PingReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // PingOutput 表示 ping 命令输出的结构化表示
-type PingOutput struct {
-	Host            string    `json:"host"`            // 目标主机
-	Transmitted     int       `json:"transmitted"`     // 已发送的数据包数
-	Received        int       `json:"received"`        // 已接收的数据包数
-	PacketLoss      float64   `json:"packetLoss"`      // 数据包丢失率 (%)
-	MinRtt          float64   `json:"minRtt"`          // 最小往返时间 (ms)
-	AvgRtt          float64   `json:"avgRtt"`          // 平均往返时间 (ms)
-	MaxRtt          float64   `json:"maxRtt"`          // 最大往返时间 (ms)
-	StdDevRtt       float64   `json:"stdDevRtt"`       // 往返时间标准差 (ms)
-	SuccessfulPings []float64 `json:"successfulPings"` // 所有成功的ping往返时间
-}
+//type PingOutput struct {
+//	Host            string    `json:"host"`            // 目标主机
+//	Transmitted     int       `json:"transmitted"`     // 已发送的数据包数
+//	Received        int       `json:"received"`        // 已接收的数据包数
+//	PacketLoss      float64   `json:"packetLoss"`      // 数据包丢失率 (%)
+//	MinRtt          float64   `json:"minRtt"`          // 最小往返时间 (ms)
+//	AvgRtt          float64   `json:"avgRtt"`          // 平均往返时间 (ms)
+//	MaxRtt          float64   `json:"maxRtt"`          // 最大往返时间 (ms)
+//	StdDevRtt       float64   `json:"stdDevRtt"`       // 往返时间标准差 (ms)
+//	SuccessfulPings []float64 `json:"successfulPings"` // 所有成功的ping往返时间
+//}
 
 // conditionExists 检查条件是否存在并且内容相同
-func conditionExists(conditions *[]metav1.Condition, newCond metav1.Condition) bool {
-	for _, cond := range *conditions {
-		if cond.Type == newCond.Type &&
-			cond.Status == newCond.Status &&
-			cond.Reason == newCond.Reason &&
-			cond.Message == newCond.Message {
-			return true
-		}
-	}
-	return false
-}
+//func conditionExists(conditions *[]metav1.Condition, newCond metav1.Condition) bool {
+//	for _, cond := range *conditions {
+//		if cond.Type == newCond.Type &&
+//			cond.Status == newCond.Status &&
+//			cond.Reason == newCond.Reason &&
+//			cond.Message == newCond.Message {
+//			return true
+//		}
+//	}
+//	return false
+//}
 
 // cleanupResources 清理与Ping资源关联的所有资源
 func (r *PingReconciler) cleanupResources(ctx context.Context, ping *testtoolsv1.Ping) error {
 	logger := log.FromContext(ctx)
-
-	// 查找并清理关联的Job
-	var jobList batchv1.JobList
-	if err := r.List(ctx, &jobList, client.InNamespace(ping.Namespace),
-		client.MatchingLabels{
-			"app.kubernetes.io/created-by": "testtools-controller",
-			"app.kubernetes.io/managed-by": "ping-controller",
-			"app.kubernetes.io/name":       "ping-job",
-			"app.kubernetes.io/instance":   ping.Name,
-		}); err != nil {
-		logger.Error(err, "无法列出关联的Job")
-		return err
-	}
-
-	for _, job := range jobList.Items {
-		logger.Info("删除关联的Job", "jobName", job.Name)
-		// 设置删除宽限期为0，立即删除
-		propagationPolicy := metav1.DeletePropagationBackground
-		deleteOptions := client.DeleteOptions{
-			PropagationPolicy: &propagationPolicy,
-		}
-		if err := r.Delete(ctx, &job, &deleteOptions); err != nil && !apierrors.IsNotFound(err) {
-			logger.Error(err, "删除Job失败", "jobName", job.Name)
-			return err
-		}
-	}
-
-	// 不再需要删除TestReport，因为它们现在有OwnerReference，会随着Ping资源自动删除
-	logger.Info("资源清理完成", "pingName", ping.Name)
+	logger.Info("清理资源", "pingName", ping.Name, "说明", "使用OwnerReference自动级联删除资源")
+	// 不需要手动删除资源，因为所有关联资源都通过OwnerReference设置了级联删除
 	return nil
 }

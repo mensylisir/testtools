@@ -25,24 +25,17 @@ spec:
     - jsonPath: .status.queryCount
       name: QueryCount
       type: integer
-    - jsonPath: .status.packetLoss
-      name: PacketLoss
-      type: number
-    - jsonPath: .status.minRtt
-      name: MinRtt
-      type: number
-    - jsonPath: .status.avgRtt
-      name: AvgRtt
-      type: number
-    - jsonPath: .status.maxRtt
-      name: MaxRtt
-      type: number
+    - jsonPath: .status.successCount
+      name: Succeeded
+      type: integer
+    - jsonPath: .status.failureCount
+      name: Failed
+      type: integer
     - jsonPath: .status.lastExecutionTime
       name: LastRun
       type: date
     - jsonPath: .status.testReportName
       name: TestReport
-      priority: 1
       type: string
     name: v1
     schema:

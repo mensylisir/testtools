@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REGISTRY="192.168.31.34:18093"
+REGISTRY="registry.dev.rdev.tech:18093"
 VERSION="v1"
 
 # 构建并推送FIO镜像
@@ -21,7 +21,7 @@ docker push ${REGISTRY}/testtools-ping:${VERSION}
 
 # 构建并推送控制器镜像
 echo "构建控制器镜像..."
-docker build -t ${REGISTRY}/testtools-controller:v69 .
-docker push ${REGISTRY}/testtools-controller:v69
+docker build -t ${REGISTRY}/testtools-controller:v70 .
+docker push ${REGISTRY}/testtools-controller:v70
 
 echo "所有镜像已构建并推送完成" 

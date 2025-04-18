@@ -15,7 +15,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -87,9 +86,11 @@ type PingOutput struct {
 }
 
 // PrepareFioJob 准备执行Fio测试的Job
-func PrepareFioJob(ctx context.Context, fio *testtoolsv1.Fio, client client.Client, scheme *runtime.Scheme) (*batchv1.Job, error) {
+func PrepareFioJob(ctx context.Context, k8sClient client.Client, fio *testtoolsv1.Fio) (string, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("准备执行Fio测试", "fio", fio.Name, "filePath", fio.Spec.FilePath)
+
+	// 构建命令参数
+	args := BuildFioArgs(fio)
 
 	// 创建带有标签的Job
 	labels := map[string]string{
@@ -110,7 +111,7 @@ func PrepareFioJob(ctx context.Context, fio *testtoolsv1.Fio, client client.Clie
 
 	// 检查Job是否已存在
 	var existingJob batchv1.Job
-	err := client.Get(ctx, types.NamespacedName{
+	err := k8sClient.Get(ctx, types.NamespacedName{
 		Namespace: fio.Namespace,
 		Name:      jobName,
 	}, &existingJob)
@@ -123,9 +124,9 @@ func PrepareFioJob(ctx context.Context, fio *testtoolsv1.Fio, client client.Clie
 				"job", jobName,
 				"namespace", fio.Namespace)
 
-			if err := client.Delete(ctx, &existingJob); err != nil {
+			if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 				logger.Error(err, "删除已完成的Fio Job失败")
-				return nil, err
+				return "", err
 			}
 			// 等待Job被删除
 			time.Sleep(2 * time.Second)
@@ -135,9 +136,9 @@ func PrepareFioJob(ctx context.Context, fio *testtoolsv1.Fio, client client.Clie
 				"job", jobName,
 				"namespace", fio.Namespace)
 
-			if err := client.Delete(ctx, &existingJob); err != nil {
+			if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
 				logger.Error(err, "删除失败的Fio Job失败")
-				return nil, err
+				return "", err
 			}
 			// 等待Job被删除
 			time.Sleep(2 * time.Second)
@@ -146,28 +147,19 @@ func PrepareFioJob(ctx context.Context, fio *testtoolsv1.Fio, client client.Clie
 			logger.Info("Fio Job正在运行中，不需要重新创建",
 				"job", jobName,
 				"namespace", fio.Namespace)
-			return &existingJob, nil
+			return jobName, nil
 		}
 	} else if !errors.IsNotFound(err) {
 		// 发生了除"未找到"之外的错误
 		logger.Error(err, "检查Fio Job是否存在时出错")
-		return nil, err
+		return "", err
 	}
-
-	// 构建命令参数
-	args, err := BuildFioArgs(fio)
-	if err != nil {
-		logger.Error(err, "构建Fio命令参数失败")
-		return nil, err
-	}
-
-	logger.Info("创建新的Fio Job", "name", jobName, "args", args)
 
 	// 创建Job
-	job, err := CreateJobForCommand(ctx, client, fio.Namespace, jobName, "fio", args, labels, fio.Spec.Image)
+	job, err := CreateJobForCommand(ctx, k8sClient, fio.Namespace, jobName, "fio", args, labels, fio.Spec.Image)
 	if err != nil {
 		logger.Error(err, "创建Job失败")
-		return nil, err
+		return "", err
 	}
 
 	// 设置所有者引用，使Job在Fio资源被删除时自动清理
@@ -182,17 +174,17 @@ func PrepareFioJob(ctx context.Context, fio *testtoolsv1.Fio, client client.Clie
 	}
 
 	// 更新Job添加所有者引用
-	if err := client.Update(ctx, job); err != nil {
+	if err := k8sClient.Update(ctx, job); err != nil {
 		logger.Error(err, "更新Fio Job的所有者引用失败")
-		return nil, err
+		return "", err
 	}
 
 	logger.Info("成功创建并更新Fio Job", "name", jobName)
-	return job, nil
+	return jobName, nil
 }
 
 // BuildFioArgs 构建FIO命令行参数
-func BuildFioArgs(fio *testtoolsv1.Fio) ([]string, error) {
+func BuildFioArgs(fio *testtoolsv1.Fio) []string {
 	args := []string{
 		"--filename=" + fio.Spec.FilePath,
 		"--name=" + fio.Spec.JobName,
@@ -233,7 +225,7 @@ func BuildFioArgs(fio *testtoolsv1.Fio) ([]string, error) {
 		args = append(args, fmt.Sprintf("--%s=%s", k, v))
 	}
 
-	return args, nil
+	return args
 }
 
 // ParseFioOutput 解析FIO输出并提取性能指标
@@ -366,11 +358,9 @@ func PrepareDigJob(ctx context.Context, k8sClient client.Client, dig *testtoolsv
 		"app.kubernetes.io/component":  "job",
 	}
 
-	// 修复：避免重复的"-job"后缀
-	// 使用不带后缀的基本名称
-	baseName := fmt.Sprintf("dig-%s", dig.Name)
-	// 完整的作业名称，加入随机ID避免冲突
-	jobName := fmt.Sprintf("%s-%s", baseName, GenerateShortUID())
+	// 使用固定格式的job名称，避免创建多个job
+	baseName := strings.TrimSuffix(dig.Name, "-job") // 移除可能存在的-job后缀
+	jobName := fmt.Sprintf("dig-%s-job", baseName)
 
 	// 检查Job是否已存在
 	var existingJob batchv1.Job
@@ -995,4 +985,15 @@ func ExtractPingStats(output *PingOutput) testtoolsv1.PingStatus {
 		MaxRtt:     output.MaxRtt,
 	}
 	return status
+}
+
+// GenerateTestReportName 生成测试报告名称，避免重复前缀
+// 控制器可以共享这个函数以保持命名一致性
+func GenerateTestReportName(resourceKind string, resourceName string) string {
+	kindLower := strings.ToLower(resourceKind)
+	// 检查资源名称是否已包含类型前缀
+	if strings.HasPrefix(resourceName, kindLower+"-") {
+		return fmt.Sprintf("%s-report", resourceName)
+	}
+	return fmt.Sprintf("%s-%s-report", kindLower, resourceName)
 }
