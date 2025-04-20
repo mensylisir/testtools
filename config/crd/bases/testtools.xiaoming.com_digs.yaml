@@ -33,7 +33,7 @@ spec:
     - jsonPath: .status.averageResponseTime
       name: AvgResponse
       priority: 1
-      type: number
+      type: string
     - jsonPath: .status.lastExecutionTime
       name: LastRun
       type: date
@@ -75,6 +75,11 @@ spec:
               domain:
                 description: Domain is the domain name to query
                 type: string
+              image:
+                default: 172.30.1.13:18093/testtools-dig:v1
+                description: Image specifies the container image used to run the Dig
+                  test
+                type: string
               keyFile:
                 description: KeyFile specifies the TSIG key file (-k parameter)
                 type: string
@@ -86,6 +91,16 @@ spec:
                 maximum: 10
                 minimum: 1
                 type: integer
+              nodeName:
+                description: NodeName indicates in which node this pod is scheduled.
+                type: string
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: NodeSelector is a selector which must be true for the
+                  pod to fit on a node.
+                type: object
+                x-kubernetes-map-type: atomic
               port:
                 description: Port specifies a non-standard port number (-p parameter)
                 format: int32
@@ -160,10 +175,6 @@ spec:
                 description: UseTCP specifies whether to use TCP for queries (+tcp
                   option)
                 type: boolean
-              image:
-                description: Image specifies the container image used to run the Dig test
-                default: "registry.dev.rdev.tech:18093/testtools-dig:v1"
-                type: string
             required:
             - domain
             type: object
@@ -172,7 +183,7 @@ spec:
             properties:
               averageResponseTime:
                 description: AverageResponseTime is the average response time in milliseconds
-                type: number
+                type: string
               conditions:
                 description: Conditions represents the latest available observations
                   of the dig's current state
@@ -247,6 +258,10 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              executedCommand:
+                description: ExecutedCommand is the command that was executed for
+                  debug purposes
+                type: string
               failureCount:
                 description: FailureCount is the number of failed queries
                 format: int64

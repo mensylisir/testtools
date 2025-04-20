@@ -1,0 +1,9 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Iperf
+metadata:
+  name: iperf-sample-simple
+spec:
+  port: 5201
+  duration: 10
+  protocol: "tcp"
+  image: "192.168.31.34:18093/testtools-iperf:v3"

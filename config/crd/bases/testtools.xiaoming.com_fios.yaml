@@ -1,9 +1,9 @@
+---
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.11.1
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.14.0
   name: fios.testtools.xiaoming.com
 spec:
   group: testtools.xiaoming.com
@@ -33,25 +33,28 @@ spec:
     - jsonPath: .status.stats.readIOPS
       name: ReadIOPS
       priority: 1
-      type: number
+      type: string
     - jsonPath: .status.stats.writeIOPS
       name: WriteIOPS
       priority: 1
-      type: number
+      type: string
     - jsonPath: .status.stats.readBW
       name: ReadBW
       priority: 1
-      type: number
+      type: string
     - jsonPath: .status.stats.writeBW
       name: WriteBW
       priority: 1
-      type: number
+      type: string
+    - jsonPath: .status.stats.readLatency
+      name: ReadLat
+      priority: 1
+      type: string
     - jsonPath: .status.lastExecutionTime
       name: LastRun
       type: date
     - jsonPath: .status.testReportName
       name: TestReport
-      priority: 1
       type: string
     name: v1
     schema:
@@ -59,14 +62,19 @@ spec:
         description: Fio is the Schema for the fios API
         properties:
           apiVersion:
-            description: 'APIVersion defines the versioned schema of this representation
-              of an object. Servers should convert recognized schemas to the latest
-              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
             type: string
           kind:
-            description: 'Kind is a string value representing the REST resource this
-              object represents. Servers may infer this from the endpoint the client
-              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
             type: string
           metadata:
             type: object
@@ -75,7 +83,8 @@ spec:
             properties:
               blockSize:
                 default: 4k
-                description: BlockSize specifies the block size in bytes (e.g., 4k, 1m)
+                description: BlockSize specifies the block size in bytes (e.g., 4k,
+                  1m)
                 type: string
               directIO:
                 default: true
@@ -89,13 +98,19 @@ spec:
               filePath:
                 description: FilePath is the path where the test file will be created
                 type: string
+              group:
+                description: Group enables grouping of results across jobs
+                type: boolean
               image:
                 default: 172.30.1.13:18093/testtools-fio:v1
-                description: Image specifies the container image used to run the FIO test
+                description: Image specifies the container image used to run the FIO
+                  test
                 type: string
               ioDepth:
                 default: 1
-                description: IODepth specifies the number of I/O units to keep in flight against the file
+                description: IODepth specifies the number of I/O units to keep in
+                  flight against the file
+                format: int32
                 maximum: 1024
                 minimum: 1
                 type: integer
@@ -115,23 +130,38 @@ spec:
                 description: Name is the name of the fio job
                 type: string
               kernelFilesystemBufferCache:
-                description: KernelFilesystemBufferCache determines if buffered I/O uses the kernel's buffer cache
+                description: KernelFilesystemBufferCache determines if buffered I/O
+                  uses the kernel's buffer cache
                 type: boolean
               maxRetries:
                 default: 3
-                description: MaxRetries is the maximum number of retries for failed tests
+                description: MaxRetries is the maximum number of retries for failed
+                  tests
+                format: int32
                 maximum: 10
                 minimum: 1
                 type: integer
+              nodeName:
+                description: NodeName indicates in which node this pod is scheduled.
+                type: string
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: NodeSelector is a selector which must be true for the
+                  pod to fit on a node.
+                type: object
+                x-kubernetes-map-type: atomic
               numJobs:
                 default: 1
                 description: NumJobs specifies the number of clones of this job
+                format: int32
                 maximum: 64
                 minimum: 1
                 type: integer
               readWrite:
                 default: randread
-                description: ReadWrite specifies the I/O pattern (e.g., read, write, randread, randwrite, readwrite, randrw)
+                description: ReadWrite specifies the I/O pattern (e.g., read, write,
+                  randread, randwrite, readwrite, randrw)
                 enum:
                 - read
                 - write
@@ -142,23 +172,23 @@ spec:
                 type: string
               retainJobPods:
                 default: false
-                description: RetainJobPods controls whether to retain the completed Job and Pods
+                description: RetainJobPods controls whether to retain the completed
+                  Job and Pods
                 type: boolean
               runtime:
                 description: Runtime specifies the runtime in seconds
+                format: int32
                 maximum: 3600
                 minimum: 1
                 type: integer
               schedule:
-                description: Schedule is the interval in seconds for running the fio command
+                description: Schedule is the interval in seconds for running the fio
+                  command
                 type: string
               size:
                 default: 100m
                 description: Size specifies the total size of I/O (e.g., 1g, 100m)
                 type: string
-              group:
-                description: Group enables grouping of results across jobs
-                type: boolean
             required:
             - filePath
             type: object
@@ -166,25 +196,47 @@ spec:
             description: FioStatus defines the observed state of Fio
             properties:
               conditions:
-                description: Conditions represents the latest available observations of the fio's current state
+                description: Conditions represents the latest available observations
+                  of the fio's current state
                 items:
-                  description: "Condition contains details for one aspect of the current state of this API Resource. --- This struct is intended for direct use as an array at the field path .status.conditions.  For example, \n type FooStatus struct{ // Represents the observations of a foo's current state. // Known .status.conditions.type are: \"Available\", \"Progressing\", and \"Degraded\" // +patchMergeKey=type // +patchStrategy=merge // +listType=map // +listMapKey=type Conditions []metav1.Condition `json:\"conditions,omitempty\" patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"` \n // other fields }"
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
                   properties:
                     lastTransitionTime:
-                      description: lastTransitionTime is the last time the condition transitioned from one status to another. This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
                       format: date-time
                       type: string
                     message:
-                      description: message is a human readable message indicating details about the transition. This may be an empty string.
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
                       maxLength: 32768
                       type: string
                     observedGeneration:
-                      description: observedGeneration represents the .metadata.generation that the condition was set based upon. For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date with respect to the current state of the instance.
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
                       format: int64
                       minimum: 0
                       type: integer
                     reason:
-                      description: reason contains a programmatic identifier indicating the reason for the condition's last transition. Producers of specific condition types may define expected values and meanings for this field, and whether the values are considered a guaranteed API. The value should be a CamelCase string. This field may not be empty.
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
                       maxLength: 1024
                       minLength: 1
                       pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
@@ -197,7 +249,12 @@ spec:
                       - Unknown
                       type: string
                     type:
-                      description: type of condition in CamelCase or in foo.example.com/CamelCase. --- Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be useful (see .node.status.conditions), the ability to deconflict is important. The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      description: |-
+                        type of condition in CamelCase or in foo.example.com/CamelCase.
+                        ---
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                        useful (see .node.status.conditions), the ability to deconflict is important.
+                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
                       maxLength: 316
                       pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
                       type: string
@@ -213,7 +270,8 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               executedCommand:
-                description: ExecutedCommand is the command that was executed for debug purposes
+                description: ExecutedCommand is the command that was executed for
+                  debug purposes
                 type: string
               failureCount:
                 description: FailureCount is the number of failed fio tests
@@ -231,31 +289,32 @@ spec:
                 format: int64
                 type: integer
               stats:
-                description: Stats contains the performance statistics for the last test
+                description: Stats contains the performance statistics for the last
+                  test
                 properties:
                   latencyPercentiles:
                     additionalProperties:
-                      type: number
+                      type: string
                     description: LatencyPercentiles contains percentile latency values
                     type: object
                   readBW:
                     description: ReadBW is the read bandwidth in KiB/s
-                    type: number
+                    type: string
                   readIOPS:
                     description: ReadIOPS is the read I/O operations per second
-                    type: number
+                    type: string
                   readLatency:
                     description: ReadLatency is the average read latency in microseconds
-                    type: number
+                    type: string
                   writeBW:
                     description: WriteBW is the write bandwidth in KiB/s
-                    type: number
+                    type: string
                   writeIOPS:
                     description: WriteIOPS is the write I/O operations per second
-                    type: number
+                    type: string
                   writeLatency:
                     description: WriteLatency is the average write latency in microseconds
-                    type: number
+                    type: string
                 type: object
               status:
                 description: Status is the status of the last fio operation
@@ -265,7 +324,8 @@ spec:
                 format: int64
                 type: integer
               testReportName:
-                description: TestReportName is the name of the associated TestReport resource
+                description: TestReportName is the name of the associated TestReport
+                  resource
                 type: string
             type: object
         type: object
@@ -273,9 +333,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: [] 

@@ -19,7 +19,7 @@ spec:
   # IO 引擎
   ioEngine: "libaio"
   # 并行 job 数量
-  numJobs: 4
+  numJobs: 1
   # 运行时间(秒)
   runtime: 60
   # 直接 IO (绕过操作系统缓存)
@@ -29,7 +29,6 @@ spec:
   # 添加ExtraParams字段以支持rwmixread
   extraParams:
     rwmixread: "70"
-  # 每天执行一次
-  schedule: "0 0 * * *"
+
   # 指定镜像
-  image: "registry.dev.rdev.tech:18093/testtools-fio:v1" 
+  image: "192.168.31.34:18093/testtools-fio:v3"

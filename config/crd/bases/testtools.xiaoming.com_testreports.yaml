@@ -76,6 +76,61 @@ spec:
           spec:
             description: TestReportSpec defines the desired state of TestReport
             properties:
+              alertConfig:
+                description: AlertConfig配置告警规则
+                properties:
+                  alertChannels:
+                    description: AlertChannels设置告警通道
+                    items:
+                      type: string
+                    type: array
+                  errorThreshold:
+                    default: 3
+                    description: ErrorThreshold设置连续错误阈值
+                    minimum: 1
+                    type: integer
+                  thresholds:
+                    additionalProperties:
+                      type: string
+                    description: Thresholds设置各指标的告警阈值
+                    type: object
+                type: object
+              analyticsConfig:
+                description: AnalyticsConfig配置分析选项
+                properties:
+                  comparisonBaseline:
+                    description: ComparisonBaseline指定比较基准
+                    type: string
+                  enableAnomalyDetection:
+                    description: EnableAnomalyDetection启用异常检测
+                    type: boolean
+                  enableTrendAnalysis:
+                    description: EnableTrendAnalysis启用趋势分析
+                    type: boolean
+                  historyLimit:
+                    default: 10
+                    description: HistoryLimit设置保留的历史记录数量
+                    maximum: 100
+                    minimum: 1
+                    type: integer
+                type: object
+              exportConfig:
+                description: ExportConfig配置数据导出选项
+                properties:
+                  destination:
+                    description: Destination指定导出目标
+                    type: string
+                  format:
+                    description: Format指定导出格式
+                    enum:
+                    - json
+                    - csv
+                    - prometheus
+                    type: string
+                  schedule:
+                    description: Schedule指定导出计划
+                    type: string
+                type: object
               interval:
                 description: Interval is the interval between test runs in seconds
                 type: integer
@@ -179,6 +234,59 @@ spec:
           status:
             description: TestReportStatus defines the observed state of TestReport
             properties:
+              analytics:
+                description: Analytics包含性能分析结果
+                properties:
+                  baselineComparison:
+                    additionalProperties:
+                      type: string
+                    description: BaselineComparison 与基准比较的结果
+                    type: object
+                  changeRate:
+                    additionalProperties:
+                      type: string
+                    description: ChangeRate 包含各指标的变化率
+                    type: object
+                  performanceTrend:
+                    additionalProperties:
+                      type: string
+                    description: PerformanceTrend 包含性能趋势分析结果
+                    type: object
+                type: object
+              anomalies:
+                description: Anomalies包含检测到的异常
+                items:
+                  description: Anomaly 表示检测到的异常
+                  properties:
+                    description:
+                      description: 异常的描述
+                      type: string
+                    detectionTime:
+                      description: 异常检测到的时间
+                      format: date-time
+                      type: string
+                    executionTime:
+                      description: 异常执行的时间
+                      format: date-time
+                      type: string
+                    metric:
+                      description: 异常指标的名称
+                      type: string
+                    severity:
+                      description: 异常的严重程度 (低、中、高)
+                      type: string
+                    value:
+                      description: 异常指标的值
+                      type: string
+                  required:
+                  - description
+                  - detectionTime
+                  - executionTime
+                  - metric
+                  - severity
+                  - value
+                  type: object
+                type: array
               completionTime:
                 description: CompletionTime is the time when test collection completed
                 format: date-time
@@ -294,7 +402,7 @@ spec:
                       type: string
                     responseTime:
                       description: ResponseTime is the response time in milliseconds
-                      type: number
+                      type: string
                     success:
                       description: Success indicates if the test was successful
                       type: boolean
@@ -315,13 +423,13 @@ spec:
                 properties:
                   averageResponseTime:
                     description: Average response time across all tests in milliseconds
-                    type: number
+                    type: string
                   failed:
                     description: Number of failed tests
                     type: integer
                   maxResponseTime:
                     description: Max response time across all tests in milliseconds
-                    type: number
+                    type: string
                   metrics:
                     additionalProperties:
                       type: string
@@ -329,7 +437,7 @@ spec:
                     type: object
                   minResponseTime:
                     description: Min response time across all tests in milliseconds
-                    type: number
+                    type: string
                   succeeded:
                     description: Number of successful tests
                     type: integer

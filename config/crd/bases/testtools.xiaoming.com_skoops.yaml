@@ -1,0 +1,446 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.14.0
+  name: skoops.testtools.xiaoming.com
+spec:
+  group: testtools.xiaoming.com
+  names:
+    kind: Skoop
+    listKind: SkoopList
+    plural: skoops
+    singular: skoop
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - description: 诊断状态
+      jsonPath: .status.status
+      name: Status
+      type: string
+    - description: 源地址
+      jsonPath: .spec.task.sourceAddress
+      name: Source
+      type: string
+    - description: 目标地址
+      jsonPath: .spec.task.destinationAddress
+      name: Destination
+      type: string
+    - description: 目标端口
+      jsonPath: .spec.task.destinationPort
+      name: Port
+      type: integer
+    - description: 协议类型
+      jsonPath: .spec.task.protocol
+      name: Protocol
+      type: string
+    - description: 发现问题数
+      jsonPath: .status.issues
+      name: Issues
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: Skoop 是Kubernetes网络诊断资源的定义
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SkoopSpec 定义了Skoop资源的期望状态
+            properties:
+              cluster:
+                description: 集群配置
+                properties:
+                  aliyun:
+                    description: 阿里云配置
+                    properties:
+                      accessKeyID:
+                        description: 阿里云访问密钥ID
+                        type: string
+                      accessKeySecret:
+                        description: 阿里云访问密钥Secret
+                        type: string
+                      securityToken:
+                        description: 阿里云安全Token（可选）
+                        type: string
+                    type: object
+                  cloudProvider:
+                    default: generic
+                    description: 云厂商，默认为generic
+                    type: string
+                  clusterCIDR:
+                    description: 集群Pod CIDR，如不设置将尝试自动检测
+                    type: string
+                  networkPlugin:
+                    description: 网络插件，如不设置将尝试自动检测
+                    type: string
+                  proxyMode:
+                    description: 代理模式，如不设置将尝试自动检测
+                    type: string
+                type: object
+              collector:
+                description: 采集器配置
+                properties:
+                  criAddress:
+                    description: CRI API端点地址
+                    type: string
+                  image:
+                    default: kubeskoop/kubeskoop:v0.1.0
+                    description: 采集器使用的镜像
+                    type: string
+                  namespace:
+                    default: skoop
+                    description: 采集器所在命名空间
+                    type: string
+                  podWaitInterval:
+                    default: 2s
+                    description: 采集器Pod运行检查间隔
+                    type: string
+                  podWaitTimeout:
+                    default: 2m
+                    description: 采集器Pod运行检查超时
+                    type: string
+                  preserveCollectorPod:
+                    default: false
+                    description: 诊断完成后是否保留采集器Pod
+                    type: boolean
+                type: object
+              image:
+                default: kubeskoop/kubeskoop:v0.1.0
+                description: 采集器使用的镜像
+                type: string
+              logging:
+                description: 日志配置
+                properties:
+                  logDir:
+                    description: 日志目录
+                    type: string
+                  logFile:
+                    description: 日志文件
+                    type: string
+                  logFileMaxSize:
+                    default: 1800
+                    description: 日志文件最大大小（MB）
+                    format: int32
+                    type: integer
+                  logToStderr:
+                    default: true
+                    description: 是否输出到标准错误
+                    type: boolean
+                  verbosity:
+                    default: 2
+                    description: 日志级别
+                    format: int32
+                    maximum: 9
+                    minimum: 0
+                    type: integer
+                type: object
+              nodeName:
+                description: NodeName indicates in which node this pod is scheduled.
+                type: string
+              nodeSelector:
+                additionalProperties:
+                  type: string
+                description: NodeSelector is a selector which must be true for the
+                  pod to fit on a node.
+                type: object
+                x-kubernetes-map-type: atomic
+              plugins:
+                description: 插件配置
+                properties:
+                  calico:
+                    description: Calico插件配置
+                    properties:
+                      hostInterface:
+                        description: 主机网络接口
+                        type: string
+                      hostMTU:
+                        default: 1500
+                        description: 主机MTU
+                        format: int32
+                        type: integer
+                      ipipPodMTU:
+                        default: 1480
+                        description: Pod MTU (IPIP模式)
+                        format: int32
+                        type: integer
+                      podMTU:
+                        default: 1500
+                        description: Pod MTU (BGP模式)
+                        format: int32
+                        type: integer
+                    type: object
+                  flannel:
+                    description: Flannel插件配置
+                    properties:
+                      backendType:
+                        description: 后端类型，支持host-gw,vxlan,alloc，不设置则自动检测
+                        type: string
+                      bridge:
+                        default: cni0
+                        description: 桥接名称
+                        type: string
+                      hostInterface:
+                        description: 主机网络接口
+                        type: string
+                      ipMasq:
+                        default: true
+                        description: 是否进行IP伪装
+                        type: boolean
+                      podMTU:
+                        description: Pod MTU，不设置则根据CNI模式自动检测
+                        format: int32
+                        type: integer
+                    type: object
+                type: object
+              schedule:
+                description: 是否定时执行诊断
+                pattern: ^[0-9]+$
+                type: string
+              task:
+                description: 诊断任务配置
+                properties:
+                  destinationAddress:
+                    description: 目标地址，必填
+                    type: string
+                  destinationPort:
+                    description: 目标端口，必填
+                    format: int32
+                    maximum: 65535
+                    minimum: 1
+                    type: integer
+                  protocol:
+                    default: tcp
+                    description: 协议类型，默认为tcp
+                    enum:
+                    - tcp
+                    - udp
+                    - icmp
+                    type: string
+                  sourceAddress:
+                    description: 源地址
+                    type: string
+                required:
+                - destinationAddress
+                - destinationPort
+                type: object
+              timeout:
+                default: 300
+                description: 超时时间（秒）
+                format: int32
+                maximum: 3600
+                minimum: 1
+                type: integer
+              ui:
+                description: UI配置
+                properties:
+                  enableHTTP:
+                    default: false
+                    description: 是否启用HTTP服务器展示诊断结果
+                    type: boolean
+                  format:
+                    description: 输出格式，支持d2/svg/json
+                    enum:
+                    - d2
+                    - svg
+                    - json
+                    type: string
+                  httpAddress:
+                    default: 127.0.0.1:8080
+                    description: HTTP服务器监听地址
+                    type: string
+                  outputFile:
+                    description: 输出文件名，默认为工作目录下的output.d2/svg/json
+                    type: string
+                type: object
+            required:
+            - task
+            type: object
+          status:
+            description: SkoopStatus 定义了Skoop资源的观测状态
+            properties:
+              conditions:
+                description: 状态条件
+                items:
+                  description: "Condition contains details for one aspect of the current
+                    state of this API Resource.\n---\nThis struct is intended for
+                    direct use as an array at the field path .status.conditions.  For
+                    example,\n\n\n\ttype FooStatus struct{\n\t    // Represents the
+                    observations of a foo's current state.\n\t    // Known .status.conditions.type
+                    are: \"Available\", \"Progressing\", and \"Degraded\"\n\t    //
+                    +patchMergeKey=type\n\t    // +patchStrategy=merge\n\t    // +listType=map\n\t
+                    \   // +listMapKey=type\n\t    Conditions []metav1.Condition `json:\"conditions,omitempty\"
+                    patchStrategy:\"merge\" patchMergeKey:\"type\" protobuf:\"bytes,1,rep,name=conditions\"`\n\n\n\t
+                    \   // other fields\n\t}"
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: |-
+                        type of condition in CamelCase or in foo.example.com/CamelCase.
+                        ---
+                        Many .condition.type values are consistent across resources like Available, but because arbitrary conditions can be
+                        useful (see .node.status.conditions), the ability to deconflict is important.
+                        The regex it matches is (dns1123SubdomainFmt/)?(qualifiedNameFmt)
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              diagnosePodName:
+                description: 诊断的Pod名称
+                type: string
+              executedCommand:
+                description: 执行的命令
+                type: string
+              failureCount:
+                description: 失败次数
+                format: int32
+                type: integer
+              issues:
+                description: 诊断问题
+                items:
+                  description: SkoopIssue 定义诊断发现的问题
+                  properties:
+                    level:
+                      description: 问题级别：Warning, Error, Info
+                      type: string
+                    location:
+                      description: 问题位置
+                      type: string
+                    message:
+                      description: 问题描述
+                      type: string
+                    solution:
+                      description: 建议解决方案
+                      type: string
+                    type:
+                      description: 问题类型
+                      type: string
+                  type: object
+                type: array
+              lastExecutionTime:
+                description: 最后执行时间
+                format: date-time
+                type: string
+              lastResult:
+                description: LastResult is the result of the last ping operation
+                type: string
+              path:
+                description: 诊断路径
+                items:
+                  description: SkoopPathNode 定义网络路径上的节点
+                  properties:
+                    interface:
+                      description: 通过网络接口
+                      type: string
+                    ip:
+                      description: 节点IP
+                      type: string
+                    latencyMs:
+                      description: 延迟（毫秒）
+                      type: string
+                    name:
+                      description: 节点名称
+                      type: string
+                    namespace:
+                      description: 节点命名空间
+                      type: string
+                    nodeName:
+                      description: 所属节点
+                      type: string
+                    protocol:
+                      description: 应用协议层信息
+                      type: string
+                    type:
+                      description: 节点类型：Pod, Node, Service, etc.
+                      type: string
+                  type: object
+                type: array
+              queryCount:
+                description: 查询次数
+                format: int32
+                type: integer
+              resultFileURL:
+                description: 结果文件位置
+                type: string
+              status:
+                description: 诊断状态：Running, Succeeded, Failed
+                type: string
+              successCount:
+                description: 成功次数
+                format: int32
+                type: integer
+              summary:
+                description: 诊断结果概要
+                type: string
+              testReportName:
+                description: 关联的测试报告名称
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

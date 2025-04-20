@@ -22,4 +22,6 @@ spec:
   maxRetries: 2
   
   # 每10秒执行一次
-  schedule: "10" 
+  schedule: "10"
+
+  image: "192.168.31.34:18093/testtools-dig:v3"

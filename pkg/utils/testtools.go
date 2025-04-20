@@ -6,18 +6,20 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
 	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/pointer"
-	"regexp"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"strconv"
-	"strings"
-	"time"
 )
 
 // FioOutput represents the structure of fio JSON output
@@ -82,6 +84,92 @@ type PingOutput struct {
 	MaxRtt          float64   `json:"maxRtt"`          // 最大往返时间 (ms)
 	StdDevRtt       float64   `json:"stdDevRtt"`       // 往返时间标准差 (ms)
 	SuccessfulPings []float64 `json:"successfulPings"` // 所有成功的ping往返时间
+}
+
+// NCOutput 表示 nc 命令输出的结构化表示
+type NCOutput struct {
+	Host              string  `json:"host"`              // 目标主机
+	Port              int32   `json:"port"`              // 目标端口
+	Protocol          string  `json:"protocol"`          // 协议类型
+	ConnectionSuccess bool    `json:"connectionSuccess"` // 连接是否成功
+	ConnectionLatency float64 `json:"connectionLatency"` // 连接延迟 (ms)
+	ErrorMessage      string  `json:"errorMessage"`      // 错误信息（如果有）
+	ExtraInfo         string  `json:"extraInfo"`         // 额外信息（如服务器banner等）
+}
+
+// TcpPingOutput 表示 TCP Ping 输出的结构化表示
+type TcpPingOutput struct {
+	Host          string    `json:"host"`          // 目标主机
+	Port          int32     `json:"port"`          // 目标端口
+	Transmitted   int32     `json:"transmitted"`   // 发送的包数
+	Received      int32     `json:"received"`      // 接收的包数
+	PacketLoss    float64   `json:"packetLoss"`    // 丢包率 (%)
+	MinLatency    float64   `json:"minLatency"`    // 最小延迟 (ms)
+	AvgLatency    float64   `json:"avgLatency"`    // 平均延迟 (ms)
+	MaxLatency    float64   `json:"maxLatency"`    // 最大延迟 (ms)
+	StdDevLatency float64   `json:"stdDevLatency"` // 延迟标准差 (ms)
+	RttValues     []float64 `json:"rttValues"`     // 所有RTT值列表
+}
+
+// IperfOutput 表示 iperf 命令输出的结构化表示
+type IperfOutput struct {
+	Host             string                `json:"host"`             // 目标主机
+	Port             int32                 `json:"port"`             // 目标端口
+	Protocol         string                `json:"protocol"`         // 协议类型
+	Duration         float64               `json:"duration"`         // 测试持续时间 (s)
+	SentBytes        int64                 `json:"sentBytes"`        // 发送的字节数
+	ReceivedBytes    int64                 `json:"receivedBytes"`    // 接收的字节数
+	SendBandwidth    float64               `json:"sendBandwidth"`    // 发送带宽 (bits/s)
+	ReceiveBandwidth float64               `json:"receiveBandwidth"` // 接收带宽 (bits/s)
+	Jitter           float64               `json:"jitter"`           // 抖动 (ms)
+	LostPackets      int32                 `json:"lostPackets"`      // 丢失的数据包数
+	LostPercent      float64               `json:"lostPercent"`      // 丢包率 (%)
+	Retransmits      int32                 `json:"retransmits"`      // 重传次数
+	RttMs            float64               `json:"rttMs"`            // 往返时间 (ms)
+	CpuUtilization   float64               `json:"cpuUtilization"`   // CPU利用率 (%)
+	IntervalReports  []IperfIntervalReport `json:"intervalReports"`  // 间隔报告
+}
+
+// IperfIntervalReport 表示 iperf 间隔报告
+type IperfIntervalReport struct {
+	Interval         string  `json:"interval"`         // 间隔时间范围
+	SentBytes        int64   `json:"sentBytes"`        // 此间隔发送的字节数
+	ReceivedBytes    int64   `json:"receivedBytes"`    // 此间隔接收的字节数
+	SendBandwidth    float64 `json:"sendBandwidth"`    // 此间隔发送带宽 (bits/s)
+	ReceiveBandwidth float64 `json:"receiveBandwidth"` // 此间隔接收带宽 (bits/s)
+}
+
+// SkoopOutput 表示 skoop 命令输出的结构化表示
+type SkoopOutput struct {
+	SourceAddress      string       `json:"sourceAddress"`      // 源地址
+	DestinationAddress string       `json:"destinationAddress"` // 目标地址
+	DestinationPort    int32        `json:"destinationPort"`    // 目标端口
+	Protocol           string       `json:"protocol"`           // 协议类型
+	Status             string       `json:"status"`             // 诊断状态
+	Path               []SkoopNode  `json:"path"`               // 诊断路径
+	Issues             []SkoopIssue `json:"issues"`             // 诊断问题
+	Summary            string       `json:"summary"`            // 诊断概要
+}
+
+// SkoopNode 表示网络路径上的一个节点
+type SkoopNode struct {
+	Type      string  `json:"type"`      // 节点类型
+	Name      string  `json:"name"`      // 节点名称
+	IP        string  `json:"ip"`        // 节点IP
+	Namespace string  `json:"namespace"` // 命名空间
+	NodeName  string  `json:"nodeName"`  // 所属节点
+	Interface string  `json:"interface"` // 网络接口
+	Protocol  string  `json:"protocol"`  // 协议
+	LatencyMs float64 `json:"latencyMs"` // 延迟(ms)
+}
+
+// SkoopIssue 表示诊断发现的问题
+type SkoopIssue struct {
+	Type     string `json:"type"`     // 问题类型
+	Level    string `json:"level"`    // 问题级别
+	Message  string `json:"message"`  // 问题描述
+	Location string `json:"location"` // 问题位置
+	Solution string `json:"solution"` // 解决方案
 }
 
 // PrepareFioJob 准备执行Fio测试的Job
@@ -160,7 +248,7 @@ func PrepareFioJob(ctx context.Context, k8sClient client.Client, fio *testtoolsv
 	}
 
 	// 创建Job
-	job, err := CreateJobForCommand(ctx, k8sClient, fio.Namespace, jobName, "fio", args, labels, fio.Spec.Image)
+	job, err := CreateJobForCommand(ctx, k8sClient, fio.Namespace, jobName, "fio", args, labels, fio.Spec.Image, fio.Spec.NodeName, fio.Spec.NodeSelector)
 	if err != nil {
 		logger.Error(err, "创建Job失败")
 		return "", err
@@ -235,7 +323,7 @@ func BuildFioArgs(fio *testtoolsv1.Fio) []string {
 // ParseFioOutput 解析FIO输出并提取性能指标
 func ParseFioOutput(outputStr string) (testtoolsv1.FioStats, error) {
 	stats := testtoolsv1.FioStats{
-		LatencyPercentiles: make(map[string]float64),
+		LatencyPercentiles: make(map[string]string),
 	}
 
 	// 记录原始输出长度，便于调试
@@ -286,10 +374,10 @@ func ParseFioOutput(outputStr string) (testtoolsv1.FioStats, error) {
 	job := fioOutput.Jobs[0]
 
 	// 读取IOPS和带宽
-	stats.ReadIOPS = job.Read.IOPS
-	stats.WriteIOPS = job.Write.IOPS
-	stats.ReadBW = job.Read.BW
-	stats.WriteBW = job.Write.BW
+	stats.ReadIOPS = fmt.Sprintf("%f", job.Read.IOPS)
+	stats.WriteIOPS = fmt.Sprintf("%f", job.Write.IOPS)
+	stats.ReadBW = fmt.Sprintf("%f", job.Read.BW)
+	stats.WriteBW = fmt.Sprintf("%f", job.Write.BW)
 
 	// 读取延迟，处理可能的单位差异 (纳秒、微秒)
 	readLatency := job.Read.LatencyNs.Mean
@@ -297,7 +385,11 @@ func ParseFioOutput(outputStr string) (testtoolsv1.FioStats, error) {
 		readLatency = job.Read.LatencyUsec * 1000 // 转换为纳秒
 	}
 	if readLatency > 0 {
-		stats.ReadLatency = readLatency / 1000000 // 转换为毫秒
+		// 转换为微秒 (1纳秒 = 0.001微秒)
+		stats.ReadLatency = fmt.Sprintf("%.2f", readLatency/1000)
+	} else {
+		// 如果没有读取延迟数据，设置为0，避免空值
+		stats.ReadLatency = "0.00"
 	}
 
 	writeLatency := job.Write.LatencyNs.Mean
@@ -305,15 +397,20 @@ func ParseFioOutput(outputStr string) (testtoolsv1.FioStats, error) {
 		writeLatency = job.Write.LatencyUsec * 1000 // 转换为纳秒
 	}
 	if writeLatency > 0 {
-		stats.WriteLatency = writeLatency / 1000000 // 转换为毫秒
+		// 转换为微秒 (1纳秒 = 0.001微秒)
+		stats.WriteLatency = fmt.Sprintf("%.2f", writeLatency/1000)
+	} else {
+		// 如果没有写入延迟数据，设置为0，避免空值
+		stats.WriteLatency = "0.00"
 	}
 
 	// 提取百分位延迟
+	stats.LatencyPercentiles = make(map[string]string)
 	for percentile, value := range job.Read.LatencyNs.Percentile {
-		stats.LatencyPercentiles["read_"+percentile] = value / 1000000 // 转换为毫秒
+		stats.LatencyPercentiles["read_"+percentile] = fmt.Sprintf("%f", value/1000000) // 转换为毫秒
 	}
 	for percentile, value := range job.Write.LatencyNs.Percentile {
-		stats.LatencyPercentiles["write_"+percentile] = value / 1000000 // 转换为毫秒
+		stats.LatencyPercentiles["write_"+percentile] = fmt.Sprintf("%f", value/1000000) // 转换为毫秒
 	}
 
 	return stats, nil
@@ -416,7 +513,7 @@ func PrepareDigJob(ctx context.Context, k8sClient client.Client, dig *testtoolsv
 	}
 
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	job, err := CreateJobForCommand(ctx, k8sClient, dig.Namespace, jobName, "dig", args, labels, dig.Spec.Image)
+	job, err := CreateJobForCommand(ctx, k8sClient, dig.Namespace, jobName, "dig", args, labels, dig.Spec.Image, dig.Spec.NodeName, dig.Spec.NodeSelector)
 	if err != nil {
 		logger.Error(err, "创建Dig Job失败")
 		return "", err
@@ -744,7 +841,7 @@ func PreparePingJob(ctx context.Context, k8sClient client.Client, ping *testtool
 	logger.Info("创建新的Ping Job", "name", jobName, "args", args)
 
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	job, err := CreateJobForCommand(ctx, k8sClient, ping.Namespace, jobName, "ping", args, labels, ping.Spec.Image)
+	job, err := CreateJobForCommand(ctx, k8sClient, ping.Namespace, jobName, "ping", args, labels, ping.Spec.Image, ping.Spec.NodeName, ping.Spec.NodeSelector)
 	if err != nil {
 		logger.Error(err, "创建Ping Job失败")
 		return "", err
@@ -1012,188 +1109,1516 @@ func GenerateTestReportName(resourceKind string, resourceName string) string {
 	return fmt.Sprintf("%s-%s-report", kindLower, resourceName)
 }
 
+// BuildNCArgs 构建nc命令行参数
 func BuildNCArgs(nc *testtoolsv1.Nc) []string {
-	args := []string{}
+	var args []string
 
-	// Add UDP flag if specified
-	if nc.Spec.UDP {
+	// 添加协议选项
+	if nc.Spec.Protocol == "udp" {
 		args = append(args, "-u")
 	}
 
-	// Add verbose flag if specified
+	// 添加超时选项
+	if nc.Spec.Timeout > 0 {
+		args = append(args, "-w", fmt.Sprintf("%d", nc.Spec.Timeout))
+	}
+
+	// 是否开启详细日志
 	if nc.Spec.Verbose {
 		args = append(args, "-v")
 	}
 
-	// Add ZeroIO flag if specified
-	if nc.Spec.ZeroIO {
+	// 是否等待连接关闭
+	if nc.Spec.Wait {
+		args = append(args, "-q", "1") // 在EOF后等待1秒关闭
+	}
+
+	// 仅连接测试不发送数据
+	if nc.Spec.ZeroInput {
 		args = append(args, "-z")
 	}
 
-	// Add NoDNS flag if specified
-	if nc.Spec.NoDNS {
-		args = append(args, "-n")
+	// IPv4/IPv6选项
+	if nc.Spec.UseIPv4Only {
+		args = append(args, "-4")
+	} else if nc.Spec.UseIPv6Only {
+		args = append(args, "-6")
 	}
 
-	// Add timeout flag if specified
-	if nc.Spec.Timeout != 0 {
-		args = append(args, "-w", fmt.Sprintf("%d", nc.Spec.Timeout))
-	}
-
-	// Add source IP flag if specified
-	if nc.Spec.SourceIP != "" {
-		args = append(args, "-s", nc.Spec.SourceIP)
-	}
-
-	// Add source port flag if specified
-	if nc.Spec.SourcePort != 0 {
-		args = append(args, "-p", fmt.Sprintf("%d", nc.Spec.SourcePort))
-	}
-
-	// Add repeat count flag if specified
-	if nc.Spec.RepeatCount != 0 {
-		args = append(args, "-c", fmt.Sprintf("%d", nc.Spec.RepeatCount))
-	}
-
-	// Add the host and port
+	// 添加主机和端口参数（必须）
 	args = append(args, nc.Spec.Host, fmt.Sprintf("%d", nc.Spec.Port))
 
 	return args
 }
 
-func BuildTcpPingArgs(tcpPing *testtoolsv1.Tcpping) []string {
-	args := []string{"tcp-ping"}
+func BuildTcpPingArgs(tcpPing *testtoolsv1.TcpPing) []string {
+	var args []string
 
-	// Add host
-	args = append(args, tcpPing.Spec.Host)
+	// 添加结果格式参数
+	if tcpPing.Spec.Verbose {
+		args = append(args, "-d") // 显示时间戳
+		args = append(args, "-c") // 以列格式输出
+	}
 
-	// Add port
-	args = append(args, fmt.Sprintf("%d", tcpPing.Spec.Port))
-
-	// Add timeout if specified
-	if tcpPing.Spec.Timeout != 0 {
+	// 添加超时时间
+	if tcpPing.Spec.Timeout > 0 {
 		args = append(args, "-w", fmt.Sprintf("%d", tcpPing.Spec.Timeout))
 	}
 
-	// Add count if specified
-	if tcpPing.Spec.Count != 0 {
-		args = append(args, "-c", fmt.Sprintf("%d", tcpPing.Spec.Count))
+	// 添加间隔时间
+	if tcpPing.Spec.Interval > 0 {
+		args = append(args, "-r", fmt.Sprintf("%d", tcpPing.Spec.Interval))
+	}
+
+	// 添加测试次数
+	if tcpPing.Spec.Count > 0 {
+		args = append(args, "-x", fmt.Sprintf("%d", tcpPing.Spec.Count))
+	}
+
+	// 添加目标主机和端口
+	args = append(args, tcpPing.Spec.Host)
+	if tcpPing.Spec.Port > 0 {
+		args = append(args, fmt.Sprintf("%d", tcpPing.Spec.Port))
 	}
 
 	return args
 }
 
-func BuildIperfClientArgs(iperf *testtoolsv1.Iperf3) ([]string, error) {
+// BuildIperfClientArgs 为Iperf客户端模式构建命令行参数
+func BuildIperfClientArgs(iperf *testtoolsv1.Iperf) []string {
 	var args []string
-	args = append(args, "iperf3", "--client", iperf.Spec.Server)
 
-	// Add server port if specified
-	if iperf.Spec.Port != 0 {
-		args = append(args, "--port", fmt.Sprintf("%d", iperf.Spec.Port))
+	// 添加客户端标志和目标主机
+	args = append(args, "-c", iperf.Spec.Host)
+
+	// 添加端口号
+	if iperf.Spec.Port > 0 {
+		args = append(args, "-p", fmt.Sprintf("%d", iperf.Spec.Port))
+	} else {
+		args = append(args, "-p", "5201") // 默认端口
 	}
 
-	// Add duration if specified
-	if iperf.Spec.Duration != 0 {
-		args = append(args, "--time", fmt.Sprintf("%d", iperf.Spec.Duration))
+	// 添加测试时长
+	if iperf.Spec.Duration > 0 {
+		args = append(args, "-t", fmt.Sprintf("%d", iperf.Spec.Duration))
+	} else {
+		args = append(args, "-t", "10") // 默认10秒
 	}
 
-	// Add protocol if specified (TCP/UDP)
-	if iperf.Spec.Protocol == "UDP" {
+	// 添加协议选项
+	if iperf.Spec.Protocol == "udp" {
 		args = append(args, "-u")
 	}
 
-	// Add parallel streams if specified
-	if iperf.Spec.Parallel > 0 {
-		args = append(args, "--parallel", fmt.Sprintf("%d", iperf.Spec.Parallel))
+	// 添加并发流数量
+	if iperf.Spec.Parallel > 1 {
+		args = append(args, "-P", fmt.Sprintf("%d", iperf.Spec.Parallel))
 	}
 
-	// Add buffer size if specified
-	if iperf.Spec.BufferSize != "" {
-		args = append(args, "--buffer", iperf.Spec.BufferSize)
+	// 添加缓冲区大小
+	if iperf.Spec.SendBuffer > 0 {
+		args = append(args, "-w", fmt.Sprintf("%d", iperf.Spec.SendBuffer))
 	}
 
-	// Add verbose if specified
+	if iperf.Spec.ReceiveBuffer > 0 {
+		args = append(args, "-l", fmt.Sprintf("%d", iperf.Spec.ReceiveBuffer))
+	}
+
+	// 添加带宽限制
+	if iperf.Spec.Bandwidth > 0 {
+		args = append(args, "-b", fmt.Sprintf("%d", iperf.Spec.Bandwidth))
+	}
+
+	// 添加反向模式
+	if iperf.Spec.Reverse {
+		args = append(args, "-R")
+	}
+
+	// 添加双向模式
+	if iperf.Spec.Bidirectional {
+		args = append(args, "--bidir")
+	}
+
+	// 添加报告间隔
+	if iperf.Spec.ReportInterval > 0 {
+		args = append(args, "-i", fmt.Sprintf("%d", iperf.Spec.ReportInterval))
+	}
+
+	// 添加输出格式
+	if iperf.Spec.JsonOutput {
+		args = append(args, "-J")
+	}
+
+	// 添加IPv4/IPv6选项
+	if iperf.Spec.UseIPv4Only {
+		args = append(args, "-4")
+	} else if iperf.Spec.UseIPv6Only {
+		args = append(args, "-6")
+	}
+
+	// 添加详细日志
 	if iperf.Spec.Verbose {
-		args = append(args, "--verbose")
-	}
-
-	// Check if the command is valid
-	if len(args) == 0 {
-		return nil, fmt.Errorf("failed to build iperf3 client command, missing parameters")
-	}
-
-	return args, nil
-}
-
-func BuildIperfServerArgs(iperf *testtoolsv1.Iperf3) ([]string, error) {
-	var args []string
-	args = append(args, "iperf3", "--server")
-
-	// Add port if specified
-	if iperf.Spec.Port != 0 {
-		args = append(args, "--port", fmt.Sprintf("%d", iperf.Spec.Port))
-	}
-
-	// Add bind address if specified
-	if iperf.Spec.Server != "" {
-		args = append(args, "--bind", iperf.Spec.Server)
-	}
-
-	// Add verbose if specified
-	if iperf.Spec.Verbose {
-		args = append(args, "--verbose")
-	}
-
-	// Check if the command is valid
-	if len(args) == 0 {
-		return nil, fmt.Errorf("failed to build iperf3 server command, missing parameters")
-	}
-
-	return args, nil
-}
-
-func BuildSkoopArgs(skoop *testtoolsv1.Skoop) []string {
-	args := []string{"skoop"}
-
-	// Add source namespace if specified
-	if skoop.Spec.SourceNamespace != "" {
-		args = append(args, "--source-namespace", skoop.Spec.SourceNamespace)
-	}
-
-	// Add source pod if specified
-	if skoop.Spec.SourcePod != "" {
-		args = append(args, "--source-pod", skoop.Spec.SourcePod)
-	}
-
-	// Add destination namespace if specified
-	if skoop.Spec.DestinationNamespace != "" {
-		args = append(args, "--dest-namespace", skoop.Spec.DestinationNamespace)
-	}
-
-	// Add destination pod if specified
-	if skoop.Spec.Destination != "" {
-		// Determine if the destination is a valid IP address or a service FQDN or a Pod name
-		if IsValidIP(skoop.Spec.Destination) {
-			// If it's an IP, just use it directly
-			args = append(args, "--destination", skoop.Spec.Destination)
-		} else if strings.Contains(skoop.Spec.Destination, ".svc.cluster.local") {
-			// If it's a service FQDN (simple check), treat it as a service
-			args = append(args, "--destination", skoop.Spec.Destination)
-		} else {
-			// Otherwise, treat it as a Pod name
-			args = append(args, "--destination", skoop.Spec.Destination)
-		}
-	}
-
-	// Add test type if specified
-	if skoop.Spec.Type != "" {
-		args = append(args, "--type", skoop.Spec.Type)
-	}
-
-	// Add duration if specified
-	if skoop.Spec.Duration != 0 {
-		args = append(args, "--duration", fmt.Sprintf("%d", skoop.Spec.Duration))
+		args = append(args, "-V")
 	}
 
 	return args
+}
+
+// BuildIperfServerArgs 为Iperf服务器模式构建命令行参数
+func BuildIperfServerArgs(iperf *testtoolsv1.Iperf) []string {
+	var args []string
+
+	// 添加服务器标志
+	args = append(args, "-s")
+
+	// 添加端口号
+	if iperf.Spec.Port > 0 {
+		args = append(args, "-p", fmt.Sprintf("%d", iperf.Spec.Port))
+	} else {
+		args = append(args, "-p", "5201") // 默认端口
+	}
+
+	// 添加协议选项
+	if iperf.Spec.Protocol == "udp" {
+		args = append(args, "-u")
+	}
+
+	// 添加报告间隔
+	if iperf.Spec.ReportInterval > 0 {
+		args = append(args, "-i", fmt.Sprintf("%d", iperf.Spec.ReportInterval))
+	}
+
+	// 添加缓冲区大小
+	if iperf.Spec.ReceiveBuffer > 0 {
+		args = append(args, "-l", fmt.Sprintf("%d", iperf.Spec.ReceiveBuffer))
+	}
+
+	// 添加输出格式
+	if iperf.Spec.JsonOutput {
+		args = append(args, "-J")
+	}
+
+	// 添加IPv4/IPv6选项
+	if iperf.Spec.UseIPv4Only {
+		args = append(args, "-4")
+	} else if iperf.Spec.UseIPv6Only {
+		args = append(args, "-6")
+	}
+
+	// 添加详细日志
+	if iperf.Spec.Verbose {
+		args = append(args, "-V")
+	}
+
+	return args
+}
+
+// BuildSkoopArgs 为Skoop构建命令行参数
+func BuildSkoopArgs(skoop *testtoolsv1.Skoop) []string {
+	var args []string
+
+	// 基本命令
+	args = append(args, "diagnose", "connection")
+
+	// 添加源地址
+	if skoop.Spec.Task.SourceAddress != "" {
+		args = append(args, "-s", skoop.Spec.Task.SourceAddress)
+	}
+
+	// 添加目标地址和端口
+	args = append(args, "-d", skoop.Spec.Task.DestinationAddress)
+	args = append(args, "-p", fmt.Sprintf("%d", skoop.Spec.Task.DestinationPort))
+
+	// 添加协议
+	if skoop.Spec.Task.Protocol != "" {
+		args = append(args, "--protocol", skoop.Spec.Task.Protocol)
+	}
+
+	// 添加UI相关配置
+	if skoop.Spec.UI != nil {
+		if skoop.Spec.UI.Format != "" {
+			args = append(args, "--format", skoop.Spec.UI.Format)
+		}
+		if skoop.Spec.UI.OutputFile != "" {
+			args = append(args, "--output", skoop.Spec.UI.OutputFile)
+		}
+		if skoop.Spec.UI.EnableHTTP {
+			args = append(args, "--http")
+			if skoop.Spec.UI.HTTPAddress != "" {
+				args = append(args, "--http-address", skoop.Spec.UI.HTTPAddress)
+			}
+		}
+	}
+
+	// 添加日志相关配置
+	if skoop.Spec.Logging != nil {
+		if skoop.Spec.Logging.Verbosity > 0 {
+			args = append(args, "-v", fmt.Sprintf("%d", skoop.Spec.Logging.Verbosity))
+		}
+		if skoop.Spec.Logging.LogFile != "" {
+			args = append(args, "--log-file", skoop.Spec.Logging.LogFile)
+		}
+		if skoop.Spec.Logging.LogDir != "" {
+			args = append(args, "--log-dir", skoop.Spec.Logging.LogDir)
+		}
+	}
+
+	// 添加集群配置
+	if skoop.Spec.Cluster != nil {
+		if skoop.Spec.Cluster.ClusterCIDR != "" {
+			args = append(args, "--cluster-cidr", skoop.Spec.Cluster.ClusterCIDR)
+		}
+		if skoop.Spec.Cluster.NetworkPlugin != "" {
+			args = append(args, "--network-plugin", skoop.Spec.Cluster.NetworkPlugin)
+		}
+		if skoop.Spec.Cluster.ProxyMode != "" {
+			args = append(args, "--proxy-mode", skoop.Spec.Cluster.ProxyMode)
+		}
+	}
+
+	// 添加采集器配置
+	if skoop.Spec.Collector != nil {
+		if skoop.Spec.Collector.Image != "" {
+			args = append(args, "--collector-image", skoop.Spec.Collector.Image)
+		}
+		if skoop.Spec.Collector.Namespace != "" {
+			args = append(args, "--collector-namespace", skoop.Spec.Collector.Namespace)
+		}
+		if skoop.Spec.Collector.PreserveCollectorPod {
+			args = append(args, "--preserve-collector-pod")
+		}
+	}
+
+	return args
+}
+
+// ParseNCOutput 解析nc命令输出
+func ParseNCOutput(output string, nc *testtoolsv1.Nc) *NCOutput {
+	ncOutput := &NCOutput{
+		Host:     nc.Spec.Host,
+		Port:     nc.Spec.Port,
+		Protocol: nc.Spec.Protocol,
+	}
+
+	// 检查是否有连接成功的标志
+	if strings.Contains(output, "succeeded") || strings.Contains(output, "connected") {
+		ncOutput.ConnectionSuccess = true
+	} else if strings.Contains(output, "refused") || strings.Contains(output, "failed") || strings.Contains(output, "timed out") {
+		ncOutput.ConnectionSuccess = false
+	} else {
+		// 如果没有明确的成功或失败标志，但输出内容不为空，通常表示连接成功
+		ncOutput.ConnectionSuccess = output != "" && !strings.Contains(output, "error")
+	}
+
+	// 提取错误信息
+	if !ncOutput.ConnectionSuccess {
+		errorLines := []string{}
+		for _, line := range strings.Split(output, "\n") {
+			if strings.Contains(line, "error") || strings.Contains(line, "refused") ||
+				strings.Contains(line, "failed") || strings.Contains(line, "timed out") {
+				errorLines = append(errorLines, strings.TrimSpace(line))
+			}
+		}
+		ncOutput.ErrorMessage = strings.Join(errorLines, "; ")
+	}
+
+	// 提取连接延迟，通常nc命令本身不直接提供连接延迟
+	// 在实际使用时可能需要使用time命令包装nc命令来测量延迟
+	if re := regexp.MustCompile(`connect time: ([0-9.]+) ms`); re.MatchString(output) {
+		if matches := re.FindStringSubmatch(output); len(matches) > 1 {
+			if latency, err := strconv.ParseFloat(matches[1], 64); err == nil {
+				ncOutput.ConnectionLatency = latency
+			}
+		}
+	}
+
+	// 提取额外信息，如服务banner等
+	if ncOutput.ConnectionSuccess && ncOutput.ErrorMessage == "" {
+		// 去除可能的调试输出
+		lines := strings.Split(output, "\n")
+		infoLines := []string{}
+		for _, line := range lines {
+			if !strings.Contains(line, "succeeded") && !strings.Contains(line, "connected") &&
+				!strings.HasPrefix(line, "nc:") && strings.TrimSpace(line) != "" {
+				infoLines = append(infoLines, strings.TrimSpace(line))
+			}
+		}
+		ncOutput.ExtraInfo = strings.Join(infoLines, "\n")
+	}
+
+	return ncOutput
+}
+
+// ParseTcpPingOutput 解析TCP Ping命令输出
+func ParseTcpPingOutput(output string, tcpPing *testtoolsv1.TcpPing) *TcpPingOutput {
+	tcpPingOutput := &TcpPingOutput{
+		Host:      tcpPing.Spec.Host,
+		Port:      tcpPing.Spec.Port,
+		RttValues: []float64{},
+	}
+
+	// 解析每行记录的RTT值
+	pingRegex := regexp.MustCompile(`seq=(\d+) time=([0-9.]+) ms`)
+	for _, line := range strings.Split(output, "\n") {
+		if matches := pingRegex.FindStringSubmatch(line); len(matches) > 2 {
+			if val, err := strconv.ParseFloat(matches[2], 64); err == nil {
+				tcpPingOutput.RttValues = append(tcpPingOutput.RttValues, val)
+			}
+		}
+	}
+
+	// 解析统计部分
+	statsSection := ExtractSection(output, "--- TCP ping statistics ---", "")
+	if statsSection == "" {
+		statsSection = ExtractSection(output, "TCP ping statistics:", "")
+	}
+
+	// 解析发送和接收的包数
+	if packetsRegex := regexp.MustCompile(`(\d+) packets transmitted, (\d+) received`); packetsRegex.MatchString(statsSection) {
+		if matches := packetsRegex.FindStringSubmatch(statsSection); len(matches) > 2 {
+			if val, err := strconv.ParseInt(matches[1], 10, 32); err == nil {
+				tcpPingOutput.Transmitted = int32(val)
+			}
+			if val, err := strconv.ParseInt(matches[2], 10, 32); err == nil {
+				tcpPingOutput.Received = int32(val)
+			}
+		}
+	}
+
+	// 计算丢包率
+	if tcpPingOutput.Transmitted > 0 {
+		tcpPingOutput.PacketLoss = float64(tcpPingOutput.Transmitted-tcpPingOutput.Received) * 100.0 / float64(tcpPingOutput.Transmitted)
+	}
+
+	// 解析延迟统计
+	if rttRegex := regexp.MustCompile(`min/avg/max/mdev = ([0-9.]+)/([0-9.]+)/([0-9.]+)/([0-9.]+) ms`); rttRegex.MatchString(statsSection) {
+		if matches := rttRegex.FindStringSubmatch(statsSection); len(matches) > 4 {
+			if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+				tcpPingOutput.MinLatency = val
+			}
+			if val, err := strconv.ParseFloat(matches[2], 64); err == nil {
+				tcpPingOutput.AvgLatency = val
+			}
+			if val, err := strconv.ParseFloat(matches[3], 64); err == nil {
+				tcpPingOutput.MaxLatency = val
+			}
+			if val, err := strconv.ParseFloat(matches[4], 64); err == nil {
+				tcpPingOutput.StdDevLatency = val
+			}
+		}
+	}
+
+	// 如果缺少统计部分，但有RTT值，则手动计算统计信息
+	if len(tcpPingOutput.RttValues) > 0 {
+		// 找到最小值
+		if tcpPingOutput.MinLatency == 0 {
+			minVal := tcpPingOutput.RttValues[0]
+			for _, val := range tcpPingOutput.RttValues {
+				if val < minVal {
+					minVal = val
+				}
+			}
+			tcpPingOutput.MinLatency = minVal
+		}
+
+		// 找到最大值
+		if tcpPingOutput.MaxLatency == 0 {
+			maxVal := tcpPingOutput.RttValues[0]
+			for _, val := range tcpPingOutput.RttValues {
+				if val > maxVal {
+					maxVal = val
+				}
+			}
+			tcpPingOutput.MaxLatency = maxVal
+		}
+
+		// 计算平均值
+		if tcpPingOutput.AvgLatency == 0 {
+			var sum float64
+			for _, val := range tcpPingOutput.RttValues {
+				sum += val
+			}
+			tcpPingOutput.AvgLatency = sum / float64(len(tcpPingOutput.RttValues))
+		}
+
+		// 计算标准差
+		if tcpPingOutput.StdDevLatency == 0 && len(tcpPingOutput.RttValues) > 1 {
+			var sumSquares float64
+			for _, val := range tcpPingOutput.RttValues {
+				diff := val - tcpPingOutput.AvgLatency
+				sumSquares += diff * diff
+			}
+			tcpPingOutput.StdDevLatency = math.Sqrt(sumSquares / float64(len(tcpPingOutput.RttValues)-1))
+		}
+	}
+
+	return tcpPingOutput
+}
+
+// ParseIperfOutput 解析iperf命令输出
+func ParseIperfOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput, error) {
+	//iperfOutput := &IperfOutput{
+	//	Host:            iperf.Spec.Host,
+	//	Port:            iperf.Spec.Port,
+	//	Protocol:        iperf.Spec.Protocol,
+	//	IntervalReports: []IperfIntervalReport{},
+	//}
+
+	// 检查输出是否是JSON格式
+	if strings.HasPrefix(strings.TrimSpace(output), "{") && strings.Contains(output, "\"start\"") {
+		// 解析JSON格式的iperf输出
+		return parseIperfJsonOutput(output, iperf)
+	}
+
+	// 如果不是JSON格式，解析文本格式输出
+	return parseIperfTextOutput(output, iperf)
+}
+
+// parseIperfJsonOutput 解析iperf的JSON格式输出
+func parseIperfJsonOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput, error) {
+	var jsonData map[string]interface{}
+	iperfOutput := &IperfOutput{
+		Host:            iperf.Spec.Host,
+		Port:            iperf.Spec.Port,
+		Protocol:        iperf.Spec.Protocol,
+		IntervalReports: []IperfIntervalReport{},
+	}
+
+	err := json.Unmarshal([]byte(output), &jsonData)
+	if err != nil {
+		return iperfOutput, fmt.Errorf("解析JSON输出失败: %v", err)
+	}
+
+	// 获取起始信息
+	if start, ok := jsonData["start"].(map[string]interface{}); ok {
+		// 获取版本和测试配置信息
+		if test, ok := start["test_start"].(map[string]interface{}); ok {
+			if protocol, ok := test["protocol"].(string); ok {
+				iperfOutput.Protocol = protocol
+			}
+			if duration, ok := test["duration"].(float64); ok {
+				iperfOutput.Duration = duration
+			}
+		}
+	}
+
+	// 获取interval数据
+	if intervals, ok := jsonData["intervals"].([]interface{}); ok {
+		for _, idata := range intervals {
+			if interval, ok := idata.(map[string]interface{}); ok {
+				if streams, ok := interval["streams"].([]interface{}); ok && len(streams) > 0 {
+					for _, s := range streams {
+						if stream, ok := s.(map[string]interface{}); ok {
+							ir := IperfIntervalReport{}
+
+							if interval, ok := stream["interval"].(string); ok {
+								ir.Interval = interval
+							} else if start, ok := stream["start"].(float64); ok {
+								if end, ok := stream["end"].(float64); ok {
+									ir.Interval = fmt.Sprintf("%.1f-%.1f", start, end)
+								}
+							}
+
+							// 存储带宽和字节数
+							if bytes, ok := stream["bytes"].(float64); ok {
+								ir.SentBytes = int64(bytes)
+							}
+							if bitsPerSecond, ok := stream["bits_per_second"].(float64); ok {
+								ir.SendBandwidth = bitsPerSecond
+							}
+
+							iperfOutput.IntervalReports = append(iperfOutput.IntervalReports, ir)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 获取汇总数据
+	if end, ok := jsonData["end"].(map[string]interface{}); ok {
+		if sumSent, ok := end["sum_sent"].(map[string]interface{}); ok {
+			if bytes, ok := sumSent["bytes"].(float64); ok {
+				iperfOutput.SentBytes = int64(bytes)
+			}
+			if bitsPerSecond, ok := sumSent["bits_per_second"].(float64); ok {
+				iperfOutput.SendBandwidth = bitsPerSecond
+			}
+		}
+
+		if sumReceived, ok := end["sum_received"].(map[string]interface{}); ok {
+			if bytes, ok := sumReceived["bytes"].(float64); ok {
+				iperfOutput.ReceivedBytes = int64(bytes)
+			}
+			if bitsPerSecond, ok := sumReceived["bits_per_second"].(float64); ok {
+				iperfOutput.ReceiveBandwidth = bitsPerSecond
+			}
+		}
+
+		// 获取CPU利用率
+		if cpuUtil, ok := end["cpu_utilization_percent"].(map[string]interface{}); ok {
+			if hostTotal, ok := cpuUtil["host_total"].(float64); ok {
+				iperfOutput.CpuUtilization = hostTotal
+			}
+		}
+
+		// 获取UDP特定的信息
+		if streams, ok := end["streams"].([]interface{}); ok && len(streams) > 0 {
+			for _, s := range streams {
+				if stream, ok := s.(map[string]interface{}); ok {
+					if udp, ok := stream["udp"].(map[string]interface{}); ok {
+						if lost, ok := udp["lost_packets"].(float64); ok {
+							iperfOutput.LostPackets = int32(lost)
+						}
+						if lostPercent, ok := udp["lost_percent"].(float64); ok {
+							iperfOutput.LostPercent = lostPercent
+						}
+						if jitter, ok := udp["jitter_ms"].(float64); ok {
+							iperfOutput.Jitter = jitter
+						}
+					}
+
+					// 获取TCP特定的信息(重传)
+					if retrans, ok := stream["retransmits"].(float64); ok {
+						iperfOutput.Retransmits = int32(retrans)
+					}
+				}
+			}
+		}
+	}
+
+	return iperfOutput, nil
+}
+
+// parseIperfTextOutput 解析iperf的文本格式输出
+func parseIperfTextOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput, error) {
+	iperfOutput := &IperfOutput{
+		Host:            iperf.Spec.Host,
+		Port:            iperf.Spec.Port,
+		Protocol:        iperf.Spec.Protocol,
+		IntervalReports: []IperfIntervalReport{},
+	}
+
+	lines := strings.Split(output, "\n")
+	var inSummary bool
+	var inClientSummary bool
+
+	// 解析每一行输出
+	for _, line := range lines {
+		// 忽略空行
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// 检测客户端/服务器信息
+		if strings.Contains(line, "Client connecting to") {
+			parts := strings.Fields(line)
+			if len(parts) >= 4 {
+				iperfOutput.Host = parts[3]
+
+				// 解析端口
+				if len(parts) >= 6 && strings.HasPrefix(parts[5], "port") {
+					portStr := strings.TrimPrefix(parts[5], "port")
+					if port, err := strconv.ParseInt(portStr, 10, 32); err == nil {
+						iperfOutput.Port = int32(port)
+					}
+				}
+			}
+		}
+
+		// 检测协议
+		if strings.Contains(line, "TCP") {
+			iperfOutput.Protocol = "tcp"
+		} else if strings.Contains(line, "UDP") {
+			iperfOutput.Protocol = "udp"
+		}
+
+		// 检查是否是间隔报告行
+		if !inSummary && (strings.Contains(line, "sec") && strings.Contains(line, "Bytes") && strings.Contains(line, "bits/sec")) {
+			fields := strings.Fields(line)
+			if len(fields) >= 8 {
+				// 解析间隔
+				interval := ""
+				if len(fields) >= 3 && strings.Contains(fields[2], "-") {
+					interval = fields[2]
+				}
+
+				// 解析字节数
+				bytesStr := fields[4]
+				sentBytes := int64(0)
+				if val, err := strconv.ParseFloat(bytesStr, 64); err == nil {
+					// 可能需要根据单位进行转换
+					unit := fields[5]
+					multiplier := 1.0
+					if strings.HasPrefix(unit, "K") {
+						multiplier = 1000.0
+					} else if strings.HasPrefix(unit, "M") {
+						multiplier = 1000000.0
+					} else if strings.HasPrefix(unit, "G") {
+						multiplier = 1000000000.0
+					}
+					sentBytes = int64(val * multiplier)
+				}
+
+				// 解析带宽
+				bandwidthStr := fields[6]
+				bandwidth := 0.0
+				if val, err := strconv.ParseFloat(bandwidthStr, 64); err == nil {
+					// 可能需要根据单位进行转换
+					unit := fields[7]
+					multiplier := 1.0
+					if strings.HasPrefix(unit, "K") {
+						multiplier = 1000.0
+					} else if strings.HasPrefix(unit, "M") {
+						multiplier = 1000000.0
+					} else if strings.HasPrefix(unit, "G") {
+						multiplier = 1000000000.0
+					}
+					bandwidth = val * multiplier
+				}
+
+				// 添加间隔报告
+				iperfOutput.IntervalReports = append(iperfOutput.IntervalReports, IperfIntervalReport{
+					Interval:      interval,
+					SentBytes:     sentBytes,
+					SendBandwidth: bandwidth,
+				})
+
+				// 累计字节数
+				iperfOutput.SentBytes += sentBytes
+			}
+		}
+
+		// 检查是否进入总结部分
+		if strings.Contains(line, "[ ID]") && strings.Contains(line, "Transfer") && strings.Contains(line, "Bandwidth") {
+			inSummary = true
+			continue
+		}
+
+		// 解析总结部分
+		if inSummary && strings.Contains(line, "[SUM]") {
+			fields := strings.Fields(line)
+			if len(fields) >= 8 {
+				// 解析总传输字节数
+				if sentBytesStr := fields[4]; sentBytesStr != "" {
+					if val, err := strconv.ParseFloat(sentBytesStr, 64); err == nil {
+						// 可能需要根据单位进行转换
+						unit := fields[5]
+						multiplier := 1.0
+						if strings.HasPrefix(unit, "K") {
+							multiplier = 1000.0
+						} else if strings.HasPrefix(unit, "M") {
+							multiplier = 1000000.0
+						} else if strings.HasPrefix(unit, "G") {
+							multiplier = 1000000000.0
+						}
+						iperfOutput.SentBytes = int64(val * multiplier)
+					}
+				}
+
+				// 解析总带宽
+				if bandwidthStr := fields[6]; bandwidthStr != "" {
+					if val, err := strconv.ParseFloat(bandwidthStr, 64); err == nil {
+						// 可能需要根据单位进行转换
+						unit := fields[7]
+						multiplier := 1.0
+						if strings.HasPrefix(unit, "K") {
+							multiplier = 1000.0
+						} else if strings.HasPrefix(unit, "M") {
+							multiplier = 1000000.0
+						} else if strings.HasPrefix(unit, "G") {
+							multiplier = 1000000000.0
+						}
+						iperfOutput.SendBandwidth = val * multiplier
+					}
+				}
+			}
+		}
+
+		// 解析客户端摘要（UDP特有）
+		if strings.Contains(line, "Client Report:") {
+			inClientSummary = true
+			continue
+		}
+
+		// 解析UDP丢包信息
+		if inClientSummary && strings.Contains(line, "Lost/Total Datagrams") {
+			parts := strings.Split(line, "Lost/Total Datagrams")
+			if len(parts) >= 2 {
+				datagramInfo := strings.TrimSpace(parts[1])
+				dataParts := strings.Split(datagramInfo, "/")
+				if len(dataParts) >= 2 {
+					// 解析丢失的数据包
+					if lost, err := strconv.ParseInt(strings.TrimSpace(dataParts[0]), 10, 32); err == nil {
+						iperfOutput.LostPackets = int32(lost)
+					}
+
+					// 计算丢包率
+					if total, err := strconv.ParseInt(strings.TrimSpace(dataParts[1]), 10, 32); err == nil && total > 0 {
+						iperfOutput.LostPercent = float64(iperfOutput.LostPackets) * 100.0 / float64(total)
+					}
+				}
+			}
+		}
+
+		// 解析抖动信息
+		if strings.Contains(line, "Jitter") {
+			parts := strings.Split(line, "Jitter")
+			if len(parts) >= 2 {
+				jitterInfo := strings.TrimSpace(parts[1])
+				jitterParts := strings.Fields(jitterInfo)
+				if len(jitterParts) >= 1 {
+					if jitter, err := strconv.ParseFloat(jitterParts[0], 64); err == nil {
+						iperfOutput.Jitter = jitter
+					}
+				}
+			}
+		}
+
+		// 提取测试时长
+		if strings.Contains(line, "Duration") {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 2 {
+				durationStr := strings.TrimSpace(parts[1])
+				if duration, err := strconv.ParseFloat(durationStr, 64); err == nil {
+					iperfOutput.Duration = duration
+				}
+			}
+		}
+	}
+
+	return iperfOutput, nil
+}
+
+// PrepareNcJob 准备执行NC测试的Job
+func PrepareNcJob(ctx context.Context, k8sClient client.Client, nc *testtoolsv1.Nc) (string, error) {
+	logger := log.FromContext(ctx)
+
+	// 构建NC命令参数
+	args := BuildNCArgs(nc)
+
+	// 创建带有标签的Job
+	labels := map[string]string{
+		"app":                          "testtools",
+		"type":                         "nc",
+		"test-name":                    nc.Name,
+		"app.kubernetes.io/created-by": "testtools-controller",
+		"app.kubernetes.io/managed-by": "nc-controller",
+		"app.kubernetes.io/name":       "nc-job",
+		"app.kubernetes.io/instance":   nc.Name,
+		"app.kubernetes.io/part-of":    "testtools",
+		"app.kubernetes.io/component":  "job",
+	}
+
+	// 使用固定格式的job名称，避免创建多个job
+	baseName := strings.TrimSuffix(nc.Name, "-job") // 移除可能存在的-job后缀
+	jobName := fmt.Sprintf("nc-%s-job", baseName)
+	if nc.Spec.Schedule != "" {
+		jobName = fmt.Sprintf("%s-%s-job", baseName, GenerateShortUID())
+	}
+
+	// 检查Job是否已存在
+	var existingJob batchv1.Job
+	err := k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: nc.Namespace,
+		Name:      jobName,
+	}, &existingJob)
+
+	if err == nil {
+		// Job已存在，检查其状态
+		if existingJob.Status.Succeeded > 0 {
+			// Job已成功完成，可以删除并创建新Job
+			logger.Info("已存在已完成的NC Job",
+				"job", jobName,
+				"namespace", nc.Namespace)
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除已完成的Dig Job失败")
+			//	return "", err
+			//}
+			// 等待Job被删除
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
+		} else if existingJob.Status.Failed > 0 {
+			// Job已失败，可以删除并创建新Job
+			logger.Info("已存在失败的NC Job",
+				"job", jobName,
+				"namespace", nc.Namespace)
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除失败的Dig Job失败")
+			//	return "", err
+			//}
+			// 等待Job被删除
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
+		} else {
+			// Job正在运行，直接返回Job名称
+			logger.Info("NC Job正在运行中，不需要重新创建",
+				"job", jobName,
+				"namespace", nc.Namespace)
+			return jobName, nil
+		}
+	} else if !errors.IsNotFound(err) {
+		// 发生了除"未找到"之外的错误
+		logger.Error(err, "检查NC Job是否存在时出错")
+		return "", err
+	}
+
+	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
+	job, err := CreateJobForCommand(ctx, k8sClient, nc.Namespace, jobName, "nc", args, labels, nc.Spec.Image, nc.Spec.NodeName, nc.Spec.NodeSelector)
+	if err != nil {
+		logger.Error(err, "创建NC Job失败")
+		return "", err
+	}
+
+	// 设置所有者引用
+	job.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: nc.APIVersion,
+			Kind:       nc.Kind,
+			Name:       nc.Name,
+			UID:        nc.UID,
+			Controller: pointer.Bool(true),
+		},
+	}
+
+	// 更新Job
+	if err := k8sClient.Update(ctx, job); err != nil {
+		logger.Error(err, "更新NC Job的所有者引用失败")
+		return "", err
+	}
+
+	return jobName, nil
+}
+
+// PrepareTcpPingJob 准备执行TcpPing测试的Job
+func PrepareTcpPingJob(ctx context.Context, k8sClient client.Client, tcpping *testtoolsv1.TcpPing) (string, error) {
+	logger := log.FromContext(ctx)
+
+	// 构建TcpPing命令参数
+	args := BuildTcpPingArgs(tcpping)
+
+	// 创建带有标签的Job
+	labels := map[string]string{
+		"app":                          "testtools",
+		"type":                         "tcpping",
+		"test-name":                    tcpping.Name,
+		"app.kubernetes.io/created-by": "testtools-controller",
+		"app.kubernetes.io/managed-by": "tcpping-controller",
+		"app.kubernetes.io/name":       "tcpping-job",
+		"app.kubernetes.io/instance":   tcpping.Name,
+		"app.kubernetes.io/part-of":    "testtools",
+		"app.kubernetes.io/component":  "job",
+	}
+
+	// 使用固定格式的job名称，避免创建多个job
+	baseName := strings.TrimSuffix(tcpping.Name, "-job") // 移除可能存在的-job后缀
+	jobName := fmt.Sprintf("tcpping-%s-job", baseName)
+	if tcpping.Spec.Schedule != "" {
+		jobName = fmt.Sprintf("%s-%s-job", baseName, GenerateShortUID())
+	}
+
+	// 检查Job是否已存在
+	var existingJob batchv1.Job
+	err := k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: tcpping.Namespace,
+		Name:      jobName,
+	}, &existingJob)
+
+	if err == nil {
+		// Job已存在，检查其状态
+		if existingJob.Status.Succeeded > 0 {
+			// Job已成功完成，可以删除并创建新Job
+			logger.Info("已存在已完成的TcpPing Job",
+				"job", jobName,
+				"namespace", tcpping.Namespace)
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除已完成的Dig Job失败")
+			//	return "", err
+			//}
+			// 等待Job被删除
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
+		} else if existingJob.Status.Failed > 0 {
+			// Job已失败，可以删除并创建新Job
+			logger.Info("已存在失败的TcpPing Job",
+				"job", jobName,
+				"namespace", tcpping.Namespace)
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除失败的Dig Job失败")
+			//	return "", err
+			//}
+			// 等待Job被删除
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
+		} else {
+			// Job正在运行，直接返回Job名称
+			logger.Info("TcpPing Job正在运行中，不需要重新创建",
+				"job", jobName,
+				"namespace", tcpping.Namespace)
+			return jobName, nil
+		}
+	} else if !errors.IsNotFound(err) {
+		// 发生了除"未找到"之外的错误
+		logger.Error(err, "检查TcpPing Job是否存在时出错")
+		return "", err
+	}
+
+	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
+	job, err := CreateJobForCommand(ctx, k8sClient, tcpping.Namespace, jobName, "tcpping", args, labels, tcpping.Spec.Image, tcpping.Spec.NodeName, tcpping.Spec.NodeSelector)
+	if err != nil {
+		logger.Error(err, "创建TcpPing Job失败")
+		return "", err
+	}
+
+	// 设置所有者引用
+	job.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: tcpping.APIVersion,
+			Kind:       tcpping.Kind,
+			Name:       tcpping.Name,
+			UID:        tcpping.UID,
+			Controller: pointer.Bool(true),
+		},
+	}
+
+	// 更新Job
+	if err := k8sClient.Update(ctx, job); err != nil {
+		logger.Error(err, "更新TcpPing Job的所有者引用失败")
+		return "", err
+	}
+
+	return jobName, nil
+}
+
+// PrepareSkoopJob 准备执行Skoop测试的Job
+func PrepareSkoopJob(ctx context.Context, k8sClient client.Client, skoop *testtoolsv1.Skoop) (string, error) {
+	logger := log.FromContext(ctx)
+
+	// 构建Skoop命令参数
+	args := BuildSkoopArgs(skoop)
+
+	// 创建带有标签的Job
+	labels := map[string]string{
+		"app":                          "testtools",
+		"type":                         "skoop",
+		"test-name":                    skoop.Name,
+		"app.kubernetes.io/created-by": "testtools-controller",
+		"app.kubernetes.io/managed-by": "skoop-controller",
+		"app.kubernetes.io/name":       "skoop-job",
+		"app.kubernetes.io/instance":   skoop.Name,
+		"app.kubernetes.io/part-of":    "testtools",
+		"app.kubernetes.io/component":  "job",
+	}
+
+	// 使用固定格式的job名称，避免创建多个job
+	baseName := strings.TrimSuffix(skoop.Name, "-job") // 移除可能存在的-job后缀
+	jobName := fmt.Sprintf("skoop-%s-job", baseName)
+	if skoop.Spec.Schedule != "" {
+		jobName = fmt.Sprintf("%s-%s-job", baseName, GenerateShortUID())
+	}
+
+	// 检查Job是否已存在
+	var existingJob batchv1.Job
+	err := k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: skoop.Namespace,
+		Name:      jobName,
+	}, &existingJob)
+
+	if err == nil {
+		// Job已存在，检查其状态
+		if existingJob.Status.Succeeded > 0 {
+			// Job已成功完成，可以删除并创建新Job
+			logger.Info("已存在已完成的Skoop Job",
+				"job", jobName,
+				"namespace", skoop.Namespace)
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除已完成的Dig Job失败")
+			//	return "", err
+			//}
+			// 等待Job被删除
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
+		} else if existingJob.Status.Failed > 0 {
+			// Job已失败，可以删除并创建新Job
+			logger.Info("已存在失败的SkoopJob",
+				"job", jobName,
+				"namespace", skoop.Namespace)
+			//if err := k8sClient.Delete(ctx, &existingJob, client.PropagationPolicy(metav1.DeletePropagationBackground)); err != nil {
+			//	logger.Error(err, "删除失败的Dig Job失败")
+			//	return "", err
+			//}
+			// 等待Job被删除
+			//time.Sleep(2 * time.Second)
+			return jobName, nil
+		} else {
+			// Job正在运行，直接返回Job名称
+			logger.Info("Skoop Job正在运行中，不需要重新创建",
+				"job", jobName,
+				"namespace", skoop.Namespace)
+			return jobName, nil
+		}
+	} else if !errors.IsNotFound(err) {
+		// 发生了除"未找到"之外的错误
+		logger.Error(err, "检查TcpPing Job是否存在时出错")
+		return "", err
+	}
+
+	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
+	job, err := CreateJobForCommand(ctx, k8sClient, skoop.Namespace, jobName, "skoop", args, labels, skoop.Spec.Image, skoop.Spec.NodeName, skoop.Spec.NodeSelector)
+	if err != nil {
+		logger.Error(err, "创建Skoop Job失败")
+		return "", err
+	}
+
+	// 设置所有者引用
+	job.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: skoop.APIVersion,
+			Kind:       skoop.Kind,
+			Name:       skoop.Name,
+			UID:        skoop.UID,
+			Controller: pointer.Bool(true),
+		},
+	}
+
+	// 更新Job
+	if err := k8sClient.Update(ctx, job); err != nil {
+		logger.Error(err, "更新Skoop Job的所有者引用失败")
+		return "", err
+	}
+
+	return jobName, nil
+}
+
+// ParseSkoopOutput 解析skoop命令输出
+func ParseSkoopOutput(output string, skoop *testtoolsv1.Skoop) (*SkoopOutput, error) {
+	skoopOutput := &SkoopOutput{
+		SourceAddress:      skoop.Spec.Task.SourceAddress,
+		DestinationAddress: skoop.Spec.Task.DestinationAddress,
+		DestinationPort:    skoop.Spec.Task.DestinationPort,
+		Protocol:           skoop.Spec.Task.Protocol,
+		Path:               []SkoopNode{},
+		Issues:             []SkoopIssue{},
+	}
+
+	// 检查输出是否是JSON格式
+	if strings.HasPrefix(strings.TrimSpace(output), "{") {
+		// 解析JSON格式输出
+		var jsonData map[string]interface{}
+		err := json.Unmarshal([]byte(output), &jsonData)
+		if err != nil {
+			return skoopOutput, fmt.Errorf("解析JSON输出失败: %v", err)
+		}
+
+		// 获取诊断状态
+		if status, ok := jsonData["status"].(string); ok {
+			skoopOutput.Status = status
+		}
+
+		// 获取诊断概要
+		if summary, ok := jsonData["summary"].(string); ok {
+			skoopOutput.Summary = summary
+		}
+
+		// 获取诊断路径
+		if path, ok := jsonData["path"].([]interface{}); ok {
+			for _, node := range path {
+				if nodeMap, ok := node.(map[string]interface{}); ok {
+					skoopNode := SkoopNode{}
+
+					if nodeType, ok := nodeMap["type"].(string); ok {
+						skoopNode.Type = nodeType
+					}
+					if name, ok := nodeMap["name"].(string); ok {
+						skoopNode.Name = name
+					}
+					if ip, ok := nodeMap["ip"].(string); ok {
+						skoopNode.IP = ip
+					}
+					if namespace, ok := nodeMap["namespace"].(string); ok {
+						skoopNode.Namespace = namespace
+					}
+					if nodeName, ok := nodeMap["nodeName"].(string); ok {
+						skoopNode.NodeName = nodeName
+					}
+					if iface, ok := nodeMap["interface"].(string); ok {
+						skoopNode.Interface = iface
+					}
+					if protocol, ok := nodeMap["protocol"].(string); ok {
+						skoopNode.Protocol = protocol
+					}
+					if latency, ok := nodeMap["latencyMs"].(float64); ok {
+						skoopNode.LatencyMs = latency
+					}
+
+					skoopOutput.Path = append(skoopOutput.Path, skoopNode)
+				}
+			}
+		}
+
+		// 获取诊断问题
+		if issues, ok := jsonData["issues"].([]interface{}); ok {
+			for _, issue := range issues {
+				if issueMap, ok := issue.(map[string]interface{}); ok {
+					skoopIssue := SkoopIssue{}
+
+					if issueType, ok := issueMap["type"].(string); ok {
+						skoopIssue.Type = issueType
+					}
+					if level, ok := issueMap["level"].(string); ok {
+						skoopIssue.Level = level
+					}
+					if message, ok := issueMap["message"].(string); ok {
+						skoopIssue.Message = message
+					}
+					if location, ok := issueMap["location"].(string); ok {
+						skoopIssue.Location = location
+					}
+					if solution, ok := issueMap["solution"].(string); ok {
+						skoopIssue.Solution = solution
+					}
+
+					skoopOutput.Issues = append(skoopOutput.Issues, skoopIssue)
+				}
+			}
+		}
+
+		return skoopOutput, nil
+	}
+
+	// 解析文本格式输出
+	lines := strings.Split(output, "\n")
+	var inPathSection, inIssuesSection bool
+
+	for _, line := range lines {
+		trimmedLine := strings.TrimSpace(line)
+		if trimmedLine == "" {
+			continue
+		}
+
+		// 提取诊断状态
+		if strings.Contains(line, "Diagnosis Status:") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) > 1 {
+				skoopOutput.Status = strings.TrimSpace(parts[1])
+			}
+			continue
+		}
+
+		// 提取诊断概要
+		if strings.Contains(line, "Summary:") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) > 1 {
+				skoopOutput.Summary = strings.TrimSpace(parts[1])
+			}
+			continue
+		}
+
+		// 检查路径部分开始
+		if strings.Contains(line, "Network Path:") || strings.Contains(line, "Connection Path:") {
+			inPathSection = true
+			inIssuesSection = false
+			continue
+		}
+
+		// 检查问题部分开始
+		if strings.Contains(line, "Issues:") || strings.Contains(line, "Detected Issues:") {
+			inPathSection = false
+			inIssuesSection = true
+			continue
+		}
+
+		// 解析路径节点
+		if inPathSection && !strings.HasPrefix(trimmedLine, "---") {
+			fields := strings.Fields(trimmedLine)
+			if len(fields) >= 3 { // 至少需要类型、名称和IP
+				node := SkoopNode{
+					Type: fields[0],
+					Name: fields[1],
+				}
+
+				// 尝试提取IP地址
+				ipRegex := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+				if ipMatches := ipRegex.FindAllString(trimmedLine, -1); len(ipMatches) > 0 {
+					node.IP = ipMatches[0]
+				}
+
+				// 尝试提取命名空间
+				if strings.Contains(trimmedLine, "namespace:") {
+					parts := strings.Split(trimmedLine, "namespace:")
+					if len(parts) > 1 {
+						namespaceParts := strings.Fields(parts[1])
+						if len(namespaceParts) > 0 {
+							node.Namespace = namespaceParts[0]
+						}
+					}
+				}
+
+				// 尝试提取节点名称
+				if strings.Contains(trimmedLine, "node:") {
+					parts := strings.Split(trimmedLine, "node:")
+					if len(parts) > 1 {
+						nodeParts := strings.Fields(parts[1])
+						if len(nodeParts) > 0 {
+							node.NodeName = nodeParts[0]
+						}
+					}
+				}
+
+				// 尝试提取接口信息
+				if strings.Contains(trimmedLine, "interface:") {
+					parts := strings.Split(trimmedLine, "interface:")
+					if len(parts) > 1 {
+						ifaceParts := strings.Fields(parts[1])
+						if len(ifaceParts) > 0 {
+							node.Interface = ifaceParts[0]
+						}
+					}
+				}
+
+				// 尝试提取延迟信息
+				if strings.Contains(trimmedLine, "latency:") {
+					parts := strings.Split(trimmedLine, "latency:")
+					if len(parts) > 1 {
+						latencyParts := strings.Fields(parts[1])
+						if len(latencyParts) > 0 {
+							latencyStr := strings.TrimSuffix(latencyParts[0], "ms")
+							if latency, err := strconv.ParseFloat(latencyStr, 64); err == nil {
+								node.LatencyMs = latency
+							}
+						}
+					}
+				}
+
+				skoopOutput.Path = append(skoopOutput.Path, node)
+			}
+			continue
+		}
+
+		// 解析问题
+		if inIssuesSection && !strings.HasPrefix(trimmedLine, "---") {
+			// 尝试解析问题格式，例如 "[WARNING] Pod network policy blocks traffic: in namespace default"
+			levelRegex := regexp.MustCompile(`\[(WARNING|ERROR|INFO)\]`)
+			if levelMatches := levelRegex.FindStringSubmatch(trimmedLine); len(levelMatches) > 1 {
+				issue := SkoopIssue{
+					Level: levelMatches[1],
+				}
+
+				// 提取问题描述
+				messageParts := strings.SplitN(trimmedLine, "]", 2)
+				if len(messageParts) > 1 {
+					issue.Message = strings.TrimSpace(messageParts[1])
+				}
+
+				// 尝试根据消息内容推断问题类型
+				if strings.Contains(issue.Message, "network policy") {
+					issue.Type = "NetworkPolicy"
+				} else if strings.Contains(issue.Message, "firewall") {
+					issue.Type = "Firewall"
+				} else if strings.Contains(issue.Message, "DNS") {
+					issue.Type = "DNS"
+				} else if strings.Contains(issue.Message, "route") {
+					issue.Type = "Routing"
+				} else if strings.Contains(issue.Message, "MTU") {
+					issue.Type = "MTU"
+				} else {
+					issue.Type = "Other"
+				}
+
+				// 尝试提取位置信息
+				if strings.Contains(issue.Message, "in namespace") {
+					locationParts := strings.Split(issue.Message, "in namespace")
+					if len(locationParts) > 1 {
+						issue.Location = "namespace:" + strings.TrimSpace(locationParts[1])
+					}
+				} else if strings.Contains(issue.Message, "on node") {
+					locationParts := strings.Split(issue.Message, "on node")
+					if len(locationParts) > 1 {
+						issue.Location = "node:" + strings.TrimSpace(locationParts[1])
+					}
+				}
+
+				skoopOutput.Issues = append(skoopOutput.Issues, issue)
+			}
+			continue
+		}
+	}
+
+	return skoopOutput, nil
+}
+
+// PrepareIperfServerJob
+func PrepareIperfServerJob(ctx context.Context, k8sClient client.Client, iperf *testtoolsv1.Iperf) (string, error) {
+	logger := log.FromContext(ctx)
+	logger.Info("Prepare iperf server Job", "namespace", iperf.Namespace, "name", iperf.Name)
+
+	// 构建Skoop命令参数
+	args := BuildIperfServerArgs(iperf)
+
+	// 创建带有标签的Job
+	labels := map[string]string{
+		"app":                          "testtools",
+		"type":                         "iperf",
+		"test-name":                    iperf.Name,
+		"app.kubernetes.io/created-by": "testtools-controller",
+		"app.kubernetes.io/managed-by": "iperf-controller",
+		"app.kubernetes.io/name":       "iperf-job",
+		"app.kubernetes.io/instance":   iperf.Name,
+		"app.kubernetes.io/part-of":    "testtools",
+		"app.kubernetes.io/component":  "job",
+	}
+
+	// 使用固定格式的job名称，避免创建多个job
+	baseName := strings.TrimSuffix(iperf.Name, "-job")
+	jobName := fmt.Sprintf("iperf-server-%s-job", baseName)
+	if iperf.Spec.Schedule != "" {
+		jobName = fmt.Sprintf("iperf-server-%s-%s-job", baseName, GenerateShortUID())
+	}
+
+	// 检查Job是否已存在
+	var existingJob batchv1.Job
+	err := k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: iperf.Namespace,
+		Name:      jobName,
+	}, &existingJob)
+
+	if err == nil {
+		// Job已存在，检查其状态
+		if existingJob.Status.Succeeded > 0 {
+			logger.Info("已存在已完成的Iperf Server Job",
+				"job", jobName,
+				"namespace", iperf.Namespace)
+			return jobName, nil
+		} else if existingJob.Status.Failed > 0 {
+			// Job已失败，可以删除并创建新Job
+			logger.Info("已存在失败的Iperf Server Job",
+				"job", jobName,
+				"namespace", iperf.Namespace)
+			return jobName, nil
+		} else {
+			// Job正在运行，直接返回Job名称
+			logger.Info("Iperf Server Job正在运行中，不需要重新创建",
+				"job", jobName,
+				"namespace", iperf.Namespace)
+			return jobName, nil
+		}
+	} else if !errors.IsNotFound(err) {
+		logger.Error(err, "检查Iperf Server Job是否存在时出错")
+		return "", err
+	}
+
+	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
+	job, err := CreateJobForCommand(ctx, k8sClient, iperf.Namespace, jobName, "iperf3", args, labels, iperf.Spec.Image, iperf.Spec.NodeName, iperf.Spec.NodeSelector)
+	if err != nil {
+		logger.Error(err, "创建Iperf Server Job失败")
+		return "", err
+	}
+
+	// 设置所有者引用
+	job.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: iperf.APIVersion,
+			Kind:       iperf.Kind,
+			Name:       iperf.Name,
+			UID:        iperf.UID,
+			Controller: pointer.Bool(true),
+		},
+	}
+
+	// 更新Job
+	if err := k8sClient.Update(ctx, job); err != nil {
+		logger.Error(err, "更新Iperf Server Job所有者引用失败")
+		return "", err
+	}
+
+	logger.Info("成功创建Iperf Server Job", "name", jobName)
+	return jobName, nil
+}
+
+// PrepareIperfClientJob 准备执行Iperf客户端Job
+func PrepareIperfClientJob(ctx context.Context, k8sClient client.Client, iperf *testtoolsv1.Iperf) (string, error) {
+	logger := log.FromContext(ctx)
+	logger.Info("Prepare iperf client Job", "namespace", iperf.Namespace, "name", iperf.Name)
+
+	// 构建Skoop命令参数
+	args := BuildIperfClientArgs(iperf)
+
+	// 创建带有标签的Job
+	labels := map[string]string{
+		"app":                          "testtools",
+		"type":                         "iperf",
+		"test-name":                    iperf.Name,
+		"app.kubernetes.io/created-by": "testtools-controller",
+		"app.kubernetes.io/managed-by": "iperf-controller",
+		"app.kubernetes.io/name":       "iperf-job",
+		"app.kubernetes.io/instance":   iperf.Name,
+		"app.kubernetes.io/part-of":    "testtools",
+		"app.kubernetes.io/component":  "job",
+	}
+
+	// 使用固定格式的job名称，避免创建多个job
+	baseName := strings.TrimSuffix(iperf.Name, "-job")
+	jobName := fmt.Sprintf("iperf-client-%s-job", baseName)
+	if iperf.Spec.Schedule != "" {
+		jobName = fmt.Sprintf("iperf-client-%s-%s-job", baseName, GenerateShortUID())
+	}
+
+	// 检查Job是否已存在
+	var existingJob batchv1.Job
+	err := k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: iperf.Namespace,
+		Name:      jobName,
+	}, &existingJob)
+
+	if err == nil {
+		// Job已存在，检查其状态
+		if existingJob.Status.Succeeded > 0 {
+			logger.Info("已存在已完成的Iperf Client Job",
+				"job", jobName,
+				"namespace", iperf.Namespace)
+			return jobName, nil
+		} else if existingJob.Status.Failed > 0 {
+			// Job已失败，可以删除并创建新Job
+			logger.Info("已存在失败的Iperf Client Job",
+				"job", jobName,
+				"namespace", iperf.Namespace)
+			return jobName, nil
+		} else {
+			// Job正在运行，直接返回Job名称
+			logger.Info("Iperf Client Job正在运行中，不需要重新创建",
+				"job", jobName,
+				"namespace", iperf.Namespace)
+			return jobName, nil
+		}
+	} else if !errors.IsNotFound(err) {
+		logger.Error(err, "检查Iperf Client Job是否存在时出错")
+		return "", err
+	}
+
+	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
+	job, err := CreateJobForCommand(ctx, k8sClient, iperf.Namespace, jobName, "iperf3", args, labels, iperf.Spec.Image, iperf.Spec.NodeName, iperf.Spec.NodeSelector)
+	if err != nil {
+		logger.Error(err, "创建Iperf Client Job失败")
+		return "", err
+	}
+
+	// 设置所有者引用
+	job.OwnerReferences = []metav1.OwnerReference{
+		{
+			APIVersion: iperf.APIVersion,
+			Kind:       iperf.Kind,
+			Name:       iperf.Name,
+			UID:        iperf.UID,
+			Controller: pointer.Bool(true),
+		},
+	}
+
+	// 更新Job
+	if err := k8sClient.Update(ctx, job); err != nil {
+		logger.Error(err, "更新Iperf Client Job所有者引用失败")
+		return "", err
+	}
+
+	logger.Info("成功创建Iperf Client Job", "name", jobName)
+	return jobName, nil
 }

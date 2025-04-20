@@ -94,6 +94,15 @@ type PingSpec struct {
 	// +optional
 	// +kubebuilder:default="172.30.1.13:18093/testtools-ping:v1"
 	Image string `json:"image,omitempty"`
+
+	// NodeSelector is a selector which must be true for the pod to fit on a node.
+	// +optional
+	// +mapType=atomic
+	NodeSelector map[string]string `json:"nodeSelector,omitempty" protobuf:"bytes,7,rep,name=nodeSelector"`
+
+	// NodeName indicates in which node this pod is scheduled.
+	// +optional
+	NodeName string `json:"nodeName,omitempty" protobuf:"bytes,10,opt,name=nodeName"`
 }
 
 // PingStatus defines the observed state of Ping
@@ -128,19 +137,19 @@ type PingStatus struct {
 
 	// PacketLoss is the percentage of packet loss
 	// +optional
-	PacketLoss float64 `json:"packetLoss,omitempty"`
+	PacketLoss string `json:"packetLoss,omitempty"`
 
 	// MinRtt is the minimum round trip time in milliseconds
 	// +optional
-	MinRtt float64 `json:"minRtt,omitempty"`
+	MinRtt string `json:"minRtt,omitempty"`
 
 	// AvgRtt is the average round trip time in milliseconds
 	// +optional
-	AvgRtt float64 `json:"avgRtt,omitempty"`
+	AvgRtt string `json:"avgRtt,omitempty"`
 
 	// MaxRtt is the maximum round trip time in milliseconds
 	// +optional
-	MaxRtt float64 `json:"maxRtt,omitempty"`
+	MaxRtt string `json:"maxRtt,omitempty"`
 
 	// TestReportName is the name of the associated TestReport resource
 	// +optional

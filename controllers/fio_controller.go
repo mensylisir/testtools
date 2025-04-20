@@ -19,10 +19,11 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/types"
 	"strconv"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,7 +36,6 @@ import (
 
 	"github.com/xiaoming/testtools/pkg/utils"
 	batchv1 "k8s.io/api/batch/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/record"
 )
@@ -188,132 +188,31 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	} else {
 		if job.Status.Succeeded > 0 {
 			logger.Info("Job completed successfully", "fio", req.Name, "jobName", jobName, "namespace", req.Namespace)
-		} else if job.Status.Failed > *job.Spec.BackoffLimit {
-			logger.Error(nil, "Job failed", "fio", req.Name, "jobName", jobName, "namespace", req.Namespace,
-				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
-		} else {
-			logger.Info("Job is still running", "fio", req.Name, "jobName", jobName, "namespace", req.Namespace,
-				"succeeded", job.Status.Succeeded, "failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
-			return ctrl.Result{RequeueAfter: time.Second * 30}, nil
-		}
-	}
+			jobOutput, err := utils.GetJobResults(ctx, r.Client, fio.Namespace, jobName)
+			if err != nil {
+				logger.Error(err, "Failed to get Fio job results")
+				fioCopy.Status.Status = "Failed"
+				fioCopy.Status.FailureCount++
+				fioCopy.Status.LastResult = fmt.Sprintf("Error getting Fio job results: %v", err)
 
-	//logger.Info("Waiting for Fio job to complete", "jobName", jobName)
-	//err = utils.WaitForJob(ctx, r.Client, fio.Namespace, jobName, 5*time.Minute)
-	//
-	//if err != nil {
-	//	logger.Error(err, "Failed while waiting for Fio job to complete")
-	//	fioCopy.Status.Status = "Failed"
-	//	fioCopy.Status.FailureCount++
-	//	fioCopy.Status.LastResult = fmt.Sprintf("Error waiting for Fio job: %v", err)
-	//
-	//	utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
-	//		Type:               "Failed",
-	//		Status:             metav1.ConditionTrue,
-	//		LastTransitionTime: now,
-	//		Reason:             "JobExecutionFailed",
-	//		Message:            fmt.Sprintf("Error waiting for Fio job: %v", err),
-	//	})
-	//
-	//	if updateErr := r.Status().Update(ctx, fioCopy); updateErr != nil {
-	//		logger.Error(updateErr, "Failed to update Fio status after job execution failure")
-	//	}
-	//	return ctrl.Result{RequeueAfter: time.Second * 30}, err
-	//}
-
-	jobOutput, err := utils.GetJobResults(ctx, r.Client, fio.Namespace, jobName)
-	if err != nil {
-		logger.Error(err, "Failed to get Fio job results")
-		fioCopy.Status.Status = "Failed"
-		fioCopy.Status.FailureCount++
-		fioCopy.Status.LastResult = fmt.Sprintf("Error getting Fio job results: %v", err)
-
-		if fioCopy.Status.TestReportName == "" {
-			fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
-		}
-
-		utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
-			Type:               "Failed",
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: now,
-			Reason:             "ResultRetrievalFailed",
-			Message:            fmt.Sprintf("Error getting Fio job results: %v", err),
-		})
-	} else {
-		fioOutput, err := utils.ParseFioOutput(jobOutput)
-		if err != nil {
-			logger.Error(err, "Failed to parse Fio job results")
-			fioCopy.Status.Status = "Failed"
-			fioCopy.Status.FailureCount++
-			fioCopy.Status.LastResult = fmt.Sprintf("Error parsing Fio job results: %v", err)
-
-			if fioCopy.Status.TestReportName == "" {
-				fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
-			}
-
-			utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
-				Type:               "Failed",
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: now,
-				Reason:             "ResultParsingFailed",
-				Message:            fmt.Sprintf("Error parsing Fio job results: %v", err),
-			})
-		}
-		fioCopy.Status.Status = "Succeeded"
-		if fioCopy.Spec.Schedule == "" {
-			fioCopy.Status.SuccessCount = 1
-		} else {
-			fioCopy.Status.SuccessCount++
-		}
-		fioCopy.Status.LastResult = jobOutput
-		fioCopy.Status.Stats = fioOutput
-
-		if fioCopy.Status.TestReportName == "" {
-			fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
-		}
-		if fioCopy.Status.QueryCount == 0 {
-			fioCopy.Status.QueryCount = 1
-		}
-		logger.Info("Fio test successfully", "result", jobOutput)
-		utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
-			Type:               "Completed",
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: now,
-			Reason:             "TestCompleted",
-			Message:            "Fio测试已成功完成",
-		})
-	}
-
-	// 更新状态
-	maxUpdateRetries := 5
-	updateRetryDelay := 200 * time.Millisecond
-
-	for i := 0; i < maxUpdateRetries; i++ {
-		// 如果不是首次尝试，重新获取对象和重新应用更改
-		if i > 0 {
-			if err := r.Get(ctx, req.NamespacedName, &fio); err != nil {
-				logger.Error(err, "Failed to re-fetch Fio for status update retry", "attempt", i+1)
-				if errors.IsNotFound(err) {
-					return ctrl.Result{}, nil
+				if fioCopy.Status.TestReportName == "" {
+					fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
 				}
-				return ctrl.Result{}, err
-			}
 
-			fioCopy = fio.DeepCopy()
-			fioCopy.Status.LastExecutionTime = &now
-			fioCopy.Status.ExecutedCommand = fmt.Sprintf("fio %s", strings.Join(fioArgs, " "))
-
-			if fio.Status.QueryCount == 0 {
-				fioCopy.Status.QueryCount = 1
-			}
-
-			if jobOutput != "" {
+				utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
+					Type:               "Failed",
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: now,
+					Reason:             "ResultRetrievalFailed",
+					Message:            fmt.Sprintf("Error getting Fio job results: %v", err),
+				})
+			} else {
 				fioOutput, err := utils.ParseFioOutput(jobOutput)
 				if err != nil {
-					logger.Error(err, "Failed to get Fio job results")
+					logger.Error(err, "Failed to parse Fio job results")
 					fioCopy.Status.Status = "Failed"
 					fioCopy.Status.FailureCount++
-					fioCopy.Status.LastResult = fmt.Sprintf("Error getting Fio job results: %v", err)
+					fioCopy.Status.LastResult = fmt.Sprintf("Error parsing Fio job results: %v", err)
 
 					if fioCopy.Status.TestReportName == "" {
 						fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
@@ -323,18 +222,28 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 						Type:               "Failed",
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: now,
-						Reason:             "ResultRetrievalFailed",
-						Message:            fmt.Sprintf("Error getting Fio job results: %v", err),
+						Reason:             "ResultParsingFailed",
+						Message:            fmt.Sprintf("Error parsing Fio job results: %v", err),
+					})
+				} else {
+					fioCopy.Status.Status = "Succeeded"
+					if fioCopy.Spec.Schedule == "" {
+						fioCopy.Status.SuccessCount = 1
+					} else {
+						fioCopy.Status.SuccessCount++
+					}
+					fioCopy.Status.LastResult = jobOutput
+					fioCopy.Status.Stats = fioOutput
+
+					logger.Info("Fio test successfully", "result", jobOutput)
+					utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
+						Type:               "Completed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            "Fio测试已成功完成",
 					})
 				}
-				fioCopy.Status.Status = "Succeeded"
-				if fioCopy.Spec.Schedule == "" {
-					fioCopy.Status.SuccessCount = 1
-				} else {
-					fioCopy.Status.SuccessCount++
-				}
-				fioCopy.Status.LastResult = jobOutput
-				fioCopy.Status.Stats = fioOutput
 
 				if fioCopy.Status.TestReportName == "" {
 					fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
@@ -342,52 +251,88 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				if fioCopy.Status.QueryCount == 0 {
 					fioCopy.Status.QueryCount = 1
 				}
-				logger.Info("Fio test successfully", "result", jobOutput)
-				utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
-					Type:               "Completed",
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: now,
-					Reason:             "TestCompleted",
-					Message:            "Fio测试已成功完成",
-				})
-			} else {
+			}
+			if updateErr := r.Status().Update(ctx, fioCopy); updateErr != nil {
+				logger.Info(updateErr.Error(), "failed to update fio status", "fio", fio.Name, "namespace", fio.Namespace)
+				return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+			}
+		} else if job.Status.Failed > *job.Spec.BackoffLimit {
+			logger.Error(nil, "Job failed", "fio", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+			jobOutput, err := utils.GetJobResults(ctx, r.Client, fio.Namespace, jobName)
+			if err != nil {
+				logger.Error(err, "Failed to get Fio job results")
 				fioCopy.Status.Status = "Failed"
 				fioCopy.Status.FailureCount++
+				fioCopy.Status.LastResult = fmt.Sprintf("Error getting Fio job results: %v", err)
 
 				if fioCopy.Status.TestReportName == "" {
 					fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
 				}
+
 				utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
 					Type:               "Failed",
 					Status:             metav1.ConditionTrue,
 					LastTransitionTime: now,
 					Reason:             "ResultRetrievalFailed",
-					Message:            "无法获取Fio测试结果",
+					Message:            fmt.Sprintf("Error getting Fio job results: %v", err),
 				})
-			}
+			} else {
+				fioOutput, err := utils.ParseFioOutput(jobOutput)
+				if err != nil {
+					logger.Error(err, "Failed to parse Fio job results")
+					fioCopy.Status.Status = "Failed"
+					fioCopy.Status.FailureCount++
+					fioCopy.Status.LastResult = fmt.Sprintf("Error parsing Fio job results: %v", err)
 
-			logger.Info("Retrying Fio status update", "attempt", i+1, "maxRetries", maxUpdateRetries)
-		}
+					if fioCopy.Status.TestReportName == "" {
+						fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
+					}
 
-		if updateErr := r.Status().Update(ctx, fioCopy); updateErr != nil {
-			if apierrors.IsConflict(updateErr) {
-				logger.Info("Conflict when updating Fio status, will retry",
-					"attempt", i+1,
-					"maxRetries", maxUpdateRetries)
-				if i < maxUpdateRetries-1 {
-					time.Sleep(updateRetryDelay)
-					updateRetryDelay *= 2 // 指数退避
-					continue
+					utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
+						Type:               "Failed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "ResultParsingFailed",
+						Message:            fmt.Sprintf("Error parsing Fio job results: %v", err),
+					})
+				} else {
+					fioCopy.Status.Status = "Failed"
+					if fioCopy.Spec.Schedule == "" {
+						fioCopy.Status.FailureCount = 1
+					} else {
+						fioCopy.Status.FailureCount++
+					}
+					fioCopy.Status.LastResult = jobOutput
+					fioCopy.Status.Stats = fioOutput
+
+					logger.Info("Fio test failed", "result", jobOutput)
+					utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
+						Type:               "Failed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            "Fio test completed failed",
+					})
+				}
+
+				if fioCopy.Status.TestReportName == "" {
+					fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
+				}
+				if fioCopy.Status.QueryCount == 0 {
+					fioCopy.Status.QueryCount = 1
 				}
 			}
-			logger.Error(updateErr, "Failed to update Fio status")
-			return ctrl.Result{RequeueAfter: time.Second * 5}, updateErr
+			if updateErr := r.Status().Update(ctx, fioCopy); updateErr != nil {
+				logger.Info(updateErr.Error(), "failed to update fio status", "fio", fio.Name, "namespace", fio.Namespace)
+				return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+			}
 		} else {
-			logger.Info("Successfully updated Fio status")
-			break
+			logger.Info("Job is still running", "fio", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"succeeded", job.Status.Succeeded, "failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+			return ctrl.Result{}, nil
 		}
 	}
-
 	if fio.Spec.Schedule != "" {
 		interval := 60 // 默认60秒
 		if intervalValue, err := strconv.Atoi(fio.Spec.Schedule); err == nil && intervalValue > 0 {
@@ -402,122 +347,6 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 		"namespace", fio.Namespace)
 	return ctrl.Result{}, nil
 }
-
-//// executeFio executes FIO tests and returns the results
-//func (r *FioReconciler) executeFio(ctx context.Context, fio *testtoolsv1.Fio) (testtoolsv1.FioStats, error) {
-//	logger := log.FromContext(ctx)
-//	logger.Info("开始执行Fio测试", "fio", fio.Name, "namespace", fio.Namespace)
-//
-//	// 创建Job执行Fio测试
-//	job, err := utils.PrepareFioJob(ctx, fio, r.Client, r.Scheme)
-//	if err != nil {
-//		logger.Error(err, "创建Fio Job失败")
-//		return testtoolsv1.FioStats{}, err
-//	}
-//
-//	// 等待Job完成
-//	err = utils.WaitForJob(ctx, r.Client, fio.Namespace, job.Name, 10*time.Minute)
-//	if err != nil {
-//		logger.Error(err, "等待Fio Job完成失败")
-//		return testtoolsv1.FioStats{}, err
-//	}
-//
-//	// 获取Job输出
-//	output, err := utils.GetJobResults(ctx, r.Client, fio.Namespace, job.Name)
-//	if err != nil {
-//		logger.Error(err, "获取Fio Job结果失败")
-//		return testtoolsv1.FioStats{}, err
-//	}
-//
-//	// 解析Fio输出
-//	stats, err := utils.ParseFioOutput(output)
-//	if err != nil {
-//		logger.Error(err, "解析Fio输出失败")
-//		return testtoolsv1.FioStats{}, err
-//	}
-//
-//	// 更新Fio状态，包括设置TestReportName
-//	err = r.updateFioStatus(ctx, types.NamespacedName{Name: fio.Name, Namespace: fio.Namespace}, func(fioObj *testtoolsv1.Fio) {
-//		fioObj.Status.Status = "Succeeded"
-//		fioObj.Status.LastExecutionTime = &metav1.Time{Time: time.Now()}
-//
-//		// 设置性能统计数据
-//		fioObj.Status.Stats = stats
-//
-//		// 限制输出长度，避免太大
-//		if len(output) > 5000 {
-//			output = output[:5000] + "...(输出被截断)"
-//		}
-//		fioObj.Status.LastResult = output
-//
-//		// 设置TestReportName，使TestReport控制器能够自动创建报告
-//		if fioObj.Status.TestReportName == "" {
-//			fioObj.Status.TestReportName = fmt.Sprintf("fio-%s-report", fio.Name)
-//		}
-//
-//		// 更新条件
-//		utils.SetCondition(&fioObj.Status.Conditions, metav1.Condition{
-//			Type:               "Completed",
-//			Status:             metav1.ConditionTrue,
-//			LastTransitionTime: metav1.Time{Time: time.Now()},
-//			Reason:             "TestCompleted",
-//			Message:            "Fio测试已成功完成",
-//		})
-//	})
-//
-//	if err != nil {
-//		logger.Error(err, "更新Fio状态失败")
-//		return stats, err
-//	}
-//
-//	return stats, nil
-//}
-
-// updateFioStatus 使用乐观锁更新Fio状态
-//func (r *FioReconciler) updateFioStatus(ctx context.Context, name types.NamespacedName, updateFn func(*testtoolsv1.Fio)) error {
-//	logger := log.FromContext(ctx)
-//	retries := 5
-//	backoff := 200 * time.Millisecond
-//
-//	var lastErr error
-//	for i := 0; i < retries; i++ {
-//		// 获取Fio实例
-//		var fio testtoolsv1.Fio
-//		if err := r.Get(ctx, name, &fio); err != nil {
-//			if errors.IsNotFound(err) {
-//				logger.Info("无法找到要更新的Fio资源", "name", name.Name, "namespace", name.Namespace)
-//				return err
-//			}
-//			lastErr = err
-//			continue
-//		}
-//
-//		// 应用更新
-//		updateFn(&fio)
-//
-//		// 确保TestReportName被设置
-//		if fio.Status.Status == "Succeeded" && fio.Status.TestReportName == "" {
-//			fio.Status.TestReportName = fmt.Sprintf("fio-%s-report", fio.Name)
-//		}
-//
-//		// 更新状态
-//		if err := r.Status().Update(ctx, &fio); err != nil {
-//			if errors.IsConflict(err) {
-//				// 冲突错误，等待后重试
-//				lastErr = err
-//				time.Sleep(backoff)
-//				backoff *= 2 // 指数退避
-//				continue
-//			}
-//			return err
-//		}
-//
-//		// 更新成功
-//		return nil
-//	}
-//
-//	return fmt.Errorf("failed to update Fio status after %d retries: %v", retries, lastErr)
-//}
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *FioReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -534,228 +363,3 @@ func (r *FioReconciler) cleanupResources(ctx context.Context, fio *testtoolsv1.F
 	// 不需要手动删除资源，因为所有关联资源都通过OwnerReference设置了级联删除
 	return nil
 }
-
-// scheduleFio 创建Job执行Fio测试
-//func (r *FioReconciler) scheduleFio(ctx context.Context, fio *testtoolsv1.Fio) (ctrl.Result, error) {
-//	logger := log.FromContext(ctx)
-//	logger.Info("开始调度Fio测试", "fioName", fio.Name)
-//
-//	// 准备Fio Job
-//	job, err := utils.PrepareFioJob(ctx, fio, r.Client, r.Scheme)
-//	if err != nil {
-//		logger.Error(err, "准备Fio Job失败")
-//		if r.Recorder != nil {
-//			r.Recorder.Event(fio, corev1.EventTypeWarning, "JobCreationFailed", "创建Fio Job失败: "+err.Error())
-//		}
-//
-//		// 更新状态为失败
-//		patch := client.MergeFrom(fio.DeepCopy())
-//		fio.Status.Status = "Failed"
-//		fio.Status.LastResult = "创建Fio Job失败: " + err.Error()
-//
-//		// 即使失败也设置TestReportName，确保能生成测试报告
-//		if fio.Status.TestReportName == "" {
-//			fio.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
-//		}
-//
-//		if err := r.Status().Patch(ctx, fio, patch); err != nil {
-//			logger.Error(err, "更新Fio状态失败")
-//			return ctrl.Result{}, err
-//		}
-//		return ctrl.Result{}, err
-//	}
-//
-//	// 注意：不再需要SetControllerReference，因为已经在utils.PrepareFioJob中设置了OwnerReferences
-//	// 避免重复设置导致控制器UID冲突
-//
-//	// 创建Job
-//	logger.Info("创建Fio Job", "jobName", job.Name)
-//	if err := r.Create(ctx, job); err != nil {
-//		// 如果Job已存在错误，忽略它继续处理
-//		if errors.IsAlreadyExists(err) {
-//			logger.Info("Job已存在，跳过创建", "jobName", job.Name)
-//		} else {
-//			logger.Error(err, "创建Job失败")
-//			if r.Recorder != nil {
-//				r.Recorder.Event(fio, corev1.EventTypeWarning, "JobCreationFailed", "创建Fio Job失败: "+err.Error())
-//			}
-//
-//			// 更新状态为失败
-//			patch := client.MergeFrom(fio.DeepCopy())
-//			fio.Status.Status = "Failed"
-//			fio.Status.LastResult = "创建Fio Job失败: " + err.Error()
-//
-//			// 即使失败也设置TestReportName
-//			if fio.Status.TestReportName == "" {
-//				fio.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
-//			}
-//
-//			if err := r.Status().Patch(ctx, fio, patch); err != nil {
-//				logger.Error(err, "更新Fio状态失败")
-//				return ctrl.Result{}, err
-//			}
-//			return ctrl.Result{}, err
-//		}
-//	}
-//
-//	// 更新状态为运行中
-//	if r.Recorder != nil {
-//		r.Recorder.Event(fio, corev1.EventTypeNormal, "JobCreated", "成功创建Fio Job: "+job.Name)
-//	}
-//	patch := client.MergeFrom(fio.DeepCopy())
-//	fio.Status.Status = "Running"
-//	fio.Status.LastResult = "Fio测试正在运行"
-//
-//	// 设置TestReportName，确保能生成测试报告
-//	if fio.Status.TestReportName == "" {
-//		fio.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
-//	}
-//
-//	if err := r.Status().Patch(ctx, fio, patch); err != nil {
-//		logger.Error(err, "更新Fio状态失败")
-//		return ctrl.Result{}, err
-//	}
-//
-//	// 短暂等待后重新检查状态
-//	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-//}
-
-// handleExistingJobs 处理已存在的Fio Job
-//func (r *FioReconciler) handleExistingJobs(ctx context.Context, fio *testtoolsv1.Fio, jobs []batchv1.Job) (ctrl.Result, error) {
-//	logger := log.FromContext(ctx)
-//
-//	// 如果没有Job，创建新的
-//	if len(jobs) == 0 {
-//		logger.Info("没有找到关联的Job，创建新Job")
-//		return r.scheduleFio(ctx, fio)
-//	}
-//
-//	// 检查是否有正在运行的作业
-//	for _, job := range jobs {
-//		// 如果作业正在运行
-//		if job.Status.Active > 0 {
-//			logger.Info("Fio Job正在运行中", "job", job.Name)
-//
-//			// 更新Fio状态为Running
-//			if fio.Status.Status != "Running" {
-//				fioCopy := fio.DeepCopy()
-//				fioCopy.Status.Status = "Running"
-//
-//				// 确保设置TestReportName
-//				if fioCopy.Status.TestReportName == "" {
-//					fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
-//				}
-//
-//				if err := r.Status().Update(ctx, fioCopy); err != nil {
-//					logger.Error(err, "更新Fio状态失败")
-//					return ctrl.Result{}, err
-//				}
-//			}
-//
-//			// 延迟重新检查
-//			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-//		}
-//
-//		// 如果作业已完成
-//		if job.Status.Succeeded > 0 {
-//			logger.Info("Fio Job已成功完成", "job", job.Name)
-//
-//			// 获取作业结果
-//			output, err := utils.GetJobResults(ctx, r.Client, fio.Namespace, job.Name)
-//			if err != nil {
-//				logger.Error(err, "获取Job结果失败")
-//				// 即使错误，也继续更新Fio状态
-//				output = fmt.Sprintf("获取任务结果失败: %v", err)
-//			}
-//
-//			// 解析结果
-//			stats := testtoolsv1.FioStats{}
-//			if output != "" {
-//				parsedStats, err := utils.ParseFioOutput(output)
-//				if err != nil {
-//					logger.Error(err, "解析Fio输出失败")
-//					// 继续执行，使用空的stats
-//				} else {
-//					stats = parsedStats
-//				}
-//			}
-//
-//			// 更新Fio状态
-//			fioCopy := fio.DeepCopy()
-//			fioCopy.Status.Status = "Succeeded"
-//			fioCopy.Status.LastResult = output
-//			fioCopy.Status.Stats = stats
-//			fioCopy.Status.SuccessCount++
-//			if fioCopy.Status.QueryCount == 0 {
-//				fioCopy.Status.QueryCount = 1
-//			}
-//
-//			// 确保TestReportName已设置
-//			if fioCopy.Status.TestReportName == "" {
-//				fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
-//			}
-//
-//			if err := r.Status().Update(ctx, fioCopy); err != nil {
-//				logger.Error(err, "更新Fio状态失败")
-//				return ctrl.Result{}, err
-//			}
-//
-//			return ctrl.Result{}, nil
-//		}
-//
-//		// 如果作业失败
-//		if job.Status.Failed > 0 {
-//			logger.Info("Fio Job执行失败", "job", job.Name)
-//
-//			// 更新Fio状态
-//			fioCopy := fio.DeepCopy()
-//			fioCopy.Status.Status = "Failed"
-//			fioCopy.Status.FailureCount++
-//			if fioCopy.Status.QueryCount == 0 {
-//				fioCopy.Status.QueryCount = 1
-//			}
-//
-//			// 确保TestReportName已设置，即使失败也设置，让TestReport控制器能处理
-//			if fioCopy.Status.TestReportName == "" {
-//				fioCopy.Status.TestReportName = utils.GenerateTestReportName("Fio", fio.Name)
-//			}
-//
-//			if err := r.Status().Update(ctx, fioCopy); err != nil {
-//				logger.Error(err, "更新Fio状态失败")
-//				return ctrl.Result{}, err
-//			}
-//
-//			return ctrl.Result{}, nil
-//		}
-//	}
-//
-//	// 如果所有作业都不在运行中，且没有成功或失败状态，则创建新作业
-//	logger.Info("没有找到活跃的Job，重新创建")
-//	return r.scheduleFio(ctx, fio)
-//}
-
-// checkFioStatus 检查Fio任务状态
-//func (r *FioReconciler) checkFioStatus(ctx context.Context, fio *testtoolsv1.Fio) (ctrl.Result, error) {
-//	logger := log.FromContext(ctx)
-//
-//	// 查找相关联的Job
-//	var jobList batchv1.JobList
-//	if err := r.List(ctx, &jobList, client.InNamespace(fio.Namespace),
-//		client.MatchingLabels{
-//			"app.kubernetes.io/created-by": "testtools-controller",
-//			"app.kubernetes.io/managed-by": "fio-controller",
-//			"app.kubernetes.io/instance":   fio.Name,
-//		}); err != nil {
-//		logger.Error(err, "无法列出关联的Job")
-//		return ctrl.Result{}, err
-//	}
-//
-//	// 如果没有找到Job，可能已经被删除
-//	if len(jobList.Items) == 0 {
-//		logger.Info("没有找到关联的Job，重新创建")
-//		return r.scheduleFio(ctx, fio)
-//	}
-//
-//	// 复用现有Job处理逻辑
-//	return r.handleExistingJobs(ctx, fio, jobList.Items)
-//}

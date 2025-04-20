@@ -41,7 +41,7 @@ func TestFioReconciler_Reconcile(t *testing.T) {
 		Status: testtoolsv1.FioStatus{
 			Conditions: []metav1.Condition{},
 			Stats: testtoolsv1.FioStats{
-				LatencyPercentiles: make(map[string]float64),
+				LatencyPercentiles: make(map[string]string),
 			},
 		},
 	}

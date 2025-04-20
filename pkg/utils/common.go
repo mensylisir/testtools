@@ -112,7 +112,7 @@ func indexOf(text, substring string) int {
 }
 
 // CreateJobForCommand creates a Kubernetes Job to execute a command
-func CreateJobForCommand(ctx context.Context, k8sClient client.Client, namespace, name, command string, args []string, labels map[string]string, image string) (*batchv1.Job, error) {
+func CreateJobForCommand(ctx context.Context, k8sClient client.Client, namespace, name, command string, args []string, labels map[string]string, image string, nodeName string, nodeSelector map[string]string) (*batchv1.Job, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Creating job to execute command", "namespace", namespace, "name", name, "command", command, "image", image)
 
@@ -148,6 +148,14 @@ func CreateJobForCommand(ctx context.Context, k8sClient client.Client, namespace
 			},
 			BackoffLimit: func() *int32 { i := int32(2); return &i }(),
 		},
+	}
+
+	if len(nodeName) > 0 {
+		job.Spec.Template.Spec.NodeName = nodeName
+	}
+
+	if nodeSelector != nil {
+		job.Spec.Template.Spec.NodeSelector = nodeSelector
 	}
 
 	// 创建job

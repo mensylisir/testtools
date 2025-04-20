@@ -1,0 +1,10 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Nc
+metadata:
+  name: nc-sample-simple
+spec:
+  host: "kubernetes.io"
+  port: 443
+  timeout: 5
+  verbose: false
+  image: "192.168.31.34:18093/testtools-nc:v3"

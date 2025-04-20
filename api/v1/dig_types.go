@@ -118,6 +118,15 @@ type DigSpec struct {
 	// +optional
 	// +kubebuilder:default="172.30.1.13:18093/testtools-dig:v1"
 	Image string `json:"image,omitempty"`
+
+	// NodeSelector is a selector which must be true for the pod to fit on a node.
+	// +optional
+	// +mapType=atomic
+	NodeSelector map[string]string `json:"nodeSelector,omitempty" protobuf:"bytes,7,rep,name=nodeSelector"`
+
+	// NodeName indicates in which node this pod is scheduled.
+	// +optional
+	NodeName string `json:"nodeName,omitempty" protobuf:"bytes,10,opt,name=nodeName"`
 }
 
 // DigStatus defines the observed state of Dig
@@ -152,7 +161,7 @@ type DigStatus struct {
 
 	// AverageResponseTime is the average response time in milliseconds
 	// +optional
-	AverageResponseTime float64 `json:"averageResponseTime,omitempty"`
+	AverageResponseTime string `json:"averageResponseTime,omitempty"`
 
 	// TestReportName is the name of the associated TestReport resource
 	// +optional
@@ -174,7 +183,7 @@ type DigStatus struct {
 // +kubebuilder:printcolumn:name="QueryCount",type="integer",JSONPath=".status.queryCount"
 // +kubebuilder:printcolumn:name="Success",type="integer",JSONPath=".status.successCount"
 // +kubebuilder:printcolumn:name="Failed",type="integer",JSONPath=".status.failureCount"
-// +kubebuilder:printcolumn:name="AvgResponse",type="number",JSONPath=".status.averageResponseTime",priority=1
+// +kubebuilder:printcolumn:name="AvgResponse",type="string",JSONPath=".status.averageResponseTime",priority=1
 // +kubebuilder:printcolumn:name="LastRun",type="date",JSONPath=".status.lastExecutionTime"
 // +kubebuilder:printcolumn:name="TestReport",type="string",JSONPath=".status.testReportName"
 // Dig is the Schema for the digs API

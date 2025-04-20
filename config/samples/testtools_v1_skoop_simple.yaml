@@ -1,0 +1,11 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Skoop
+metadata:
+  name: skoop-sample-simple
+spec:
+  task:
+    destinationAddress: "10.0.0.1"
+    destinationPort: 80
+    protocol: "tcp"
+  image: "192.168.31.34:18093/testtools-skoop:v3"
+  timeout: 60

@@ -4,42 +4,48 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
-  name: pings.testtools.xiaoming.com
+  name: ncs.testtools.xiaoming.com
 spec:
   group: testtools.xiaoming.com
   names:
-    kind: Ping
-    listKind: PingList
-    plural: pings
-    singular: ping
+    kind: Nc
+    listKind: NcList
+    plural: ncs
+    singular: nc
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.status
+    - description: 测试状态
+      jsonPath: .status.status
       name: Status
+      type: string
+    - description: 目标主机
+      jsonPath: .spec.host
+      name: Host
+      type: string
+    - description: 目标端口
+      jsonPath: .spec.port
+      name: Port
+      type: integer
+    - description: 协议类型
+      jsonPath: .spec.protocol
+      name: Protocol
+      type: string
+    - description: 连接是否成功
+      jsonPath: .status.connectionSuccess
+      name: ConnectionSuccess
+      type: boolean
+    - description: 连接延迟(ms)
+      jsonPath: .status.connectionLatency
+      name: Latency
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    - jsonPath: .status.queryCount
-      name: QueryCount
-      type: integer
-    - jsonPath: .status.successCount
-      name: Succeeded
-      type: integer
-    - jsonPath: .status.failureCount
-      name: Failed
-      type: integer
-    - jsonPath: .status.lastExecutionTime
-      name: LastRun
-      type: date
-    - jsonPath: .status.testReportName
-      name: TestReport
-      type: string
     name: v1
     schema:
       openAPIV3Schema:
-        description: Ping is the Schema for the pings API
+        description: Nc 是网络连接测试资源的定义
         properties:
           apiVersion:
             description: |-
@@ -59,49 +65,16 @@ spec:
           metadata:
             type: object
           spec:
-            description: PingSpec defines the desired state of Ping
+            description: NcSpec 定义了Nc资源的期望状态
             properties:
-              concurrency:
-                default: 1
-                description: Concurrency is the number of concurrent pings to run
-                format: int32
-                maximum: 10
-                minimum: 1
-                type: integer
-              count:
-                default: 4
-                description: Count is the number of ping requests to send
-                format: int32
-                maximum: 100
-                minimum: 1
-                type: integer
-              doNotFragment:
-                description: DoNotFragment sets the "don't fragment" bit in the IP
-                  header
-                type: boolean
               host:
-                description: Host is the host to ping
+                description: 目标主机，必填
                 type: string
               image:
-                default: 172.30.1.13:18093/testtools-ping:v1
-                description: Image specifies the container image used to run the Ping
+                default: 172.30.1.13:18093/testtools-nc:v1
+                description: Image specifies the container image used to run the Dig
                   test
                 type: string
-              interval:
-                default: 1
-                description: Interval is the interval between ping requests in seconds
-                format: int32
-                maximum: 60
-                minimum: 1
-                type: integer
-              maxRetries:
-                default: 3
-                description: MaxRetries is the maximum number of retries for failed
-                  pings
-                format: int32
-                maximum: 10
-                minimum: 1
-                type: integer
               nodeName:
                 description: NodeName indicates in which node this pod is scheduled.
                 type: string
@@ -112,47 +85,59 @@ spec:
                   pod to fit on a node.
                 type: object
                 x-kubernetes-map-type: atomic
-              packetSize:
-                default: 56
-                description: PacketSize is the size of the ICMP packet to send
+              port:
+                description: 目标端口，必填
                 format: int32
-                maximum: 65507
-                minimum: 8
+                maximum: 65535
+                minimum: 1
                 type: integer
+              protocol:
+                default: tcp
+                description: 协议类型，支持tcp和udp，默认为tcp
+                enum:
+                - tcp
+                - udp
+                type: string
               schedule:
-                description: Schedule is the cron schedule for running the ping command
+                description: 测试间隔（秒），若设置则定时执行
+                pattern: ^[0-9]+$
                 type: string
               timeout:
                 default: 5
-                description: Timeout is the timeout for each ping request in seconds
+                description: 超时时间（秒），默认为5秒
                 format: int32
-                maximum: 60
-                minimum: 1
-                type: integer
-              ttl:
-                description: TTL is the IP Time to Live
-                format: int32
-                maximum: 255
+                maximum: 300
                 minimum: 1
                 type: integer
               useIPv4Only:
-                description: UseIPv4Only forces IPv4 usage
+                default: false
+                description: 是否开启IPv4模式
                 type: boolean
               useIPv6Only:
-                description: UseIPv6Only forces IPv6 usage
+                default: false
+                description: 是否开启IPv6模式
+                type: boolean
+              verbose:
+                default: true
+                description: 是否开启详细日志输出
+                type: boolean
+              wait:
+                default: false
+                description: 是否等待连接关闭
+                type: boolean
+              zeroInput:
+                default: false
+                description: 是否只进行连接测试不发送数据
                 type: boolean
             required:
             - host
+            - port
             type: object
           status:
-            description: PingStatus defines the observed state of Ping
+            description: NcStatus 定义了Nc资源的观测状态
             properties:
-              avgRtt:
-                description: AvgRtt is the average round trip time in milliseconds
-                type: string
               conditions:
-                description: Conditions represents the latest available observations
-                  of the ping's current state
+                description: 状态条件
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -221,47 +206,42 @@ spec:
                   - type
                   type: object
                 type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
+              connectionLatency:
+                description: 连接延迟（毫秒）
+                type: string
+              connectionSuccess:
+                description: 连接是否成功
+                type: boolean
               executedCommand:
-                description: ExecutedCommand is the command that was executed for
-                  debug purposes
+                description: 执行的命令
                 type: string
               failureCount:
-                description: FailureCount is the number of failed pings
-                format: int64
+                description: 失败次数
+                format: int32
                 type: integer
+              jobName:
+                description: 测试的Job名称
+                type: string
               lastExecutionTime:
-                description: LastExecutionTime is the time of the last execution
+                description: 最后执行时间
                 format: date-time
                 type: string
               lastResult:
-                description: LastResult is the result of the last ping operation
-                type: string
-              maxRtt:
-                description: MaxRtt is the maximum round trip time in milliseconds
-                type: string
-              minRtt:
-                description: MinRtt is the minimum round trip time in milliseconds
-                type: string
-              packetLoss:
-                description: PacketLoss is the percentage of packet loss
+                description: 最后测试结果
                 type: string
               queryCount:
-                description: QueryCount is the number of pings executed
-                format: int64
+                description: 查询次数
+                format: int32
                 type: integer
               status:
-                description: Status is the status of the last ping operation
+                description: 测试状态：Running, Succeeded, Failed
                 type: string
               successCount:
-                description: SuccessCount is the number of successful pings
-                format: int64
+                description: 成功次数
+                format: int32
                 type: integer
               testReportName:
-                description: TestReportName is the name of the associated TestReport
-                  resource
+                description: 关联的测试报告名称
                 type: string
             type: object
         type: object

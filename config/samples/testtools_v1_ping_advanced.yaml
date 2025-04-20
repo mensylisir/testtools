@@ -36,11 +36,8 @@ spec:
   # 仅使用IPv4
   useIPv4Only: true
   
-  # 每30秒执行一次
-  schedule: "30"
-  
   # 失败时重试5次
   maxRetries: 5
   
   # 指定镜像
-  image: "registry.dev.rdev.tech:18093/testtools-ping:v1" 
+  image: "192.168.31.34:18093/testtools-ping:v3"

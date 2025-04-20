@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -219,6 +220,58 @@ func (r *TestReportReconciler) collectResults(ctx context.Context, testReport *t
 			completed, err := r.collectPingResults(ctx, testReport, selector, logger)
 			if err != nil {
 				logger.Error(err, "Failed to collect Ping results", "selector", selector)
+				allResourcesCompleted = false
+				continue
+			}
+			if !completed {
+				allResourcesCompleted = false
+			}
+		}
+
+		// 处理 Nc 资源
+		if selector.Kind == "Nc" && selector.APIVersion == "testtools.xiaoming.com/v1" {
+			completed, err := r.collectNcResults(ctx, testReport, selector, logger)
+			if err != nil {
+				logger.Error(err, "Failed to collect Nc results", "selector", selector)
+				allResourcesCompleted = false
+				continue
+			}
+			if !completed {
+				allResourcesCompleted = false
+			}
+		}
+
+		// 处理 TcpPing 资源
+		if selector.Kind == "TcpPing" && selector.APIVersion == "testtools.xiaoming.com/v1" {
+			completed, err := r.collectTcpPingResults(ctx, testReport, selector, logger)
+			if err != nil {
+				logger.Error(err, "Failed to collect TcpPing results", "selector", selector)
+				allResourcesCompleted = false
+				continue
+			}
+			if !completed {
+				allResourcesCompleted = false
+			}
+		}
+
+		// 处理 Iperf 资源
+		if selector.Kind == "Iperf" && selector.APIVersion == "testtools.xiaoming.com/v1" {
+			completed, err := r.collectIperfResults(ctx, testReport, selector, logger)
+			if err != nil {
+				logger.Error(err, "Failed to collect Iperf results", "selector", selector)
+				allResourcesCompleted = false
+				continue
+			}
+			if !completed {
+				allResourcesCompleted = false
+			}
+		}
+
+		// 处理 Skoop 资源
+		if selector.Kind == "Skoop" && selector.APIVersion == "testtools.xiaoming.com/v1" {
+			completed, err := r.collectSkoopResults(ctx, testReport, selector, logger)
+			if err != nil {
+				logger.Error(err, "Failed to collect Skoop results", "selector", selector)
 				allResourcesCompleted = false
 				continue
 			}
@@ -451,6 +504,68 @@ func (r *TestReportReconciler) collectPingResults(ctx context.Context, testRepor
 	return true, nil
 }
 
+// collectNcResults 收集 Nc 资源的结果
+func (r *TestReportReconciler) collectNcResults(ctx context.Context, testReport *testtoolsv1.TestReport, selector testtoolsv1.ResourceSelector, logger logr.Logger) (bool, error) {
+	nc := &testtoolsv1.Nc{}
+	err := r.Get(ctx, types.NamespacedName{Name: selector.Name, Namespace: selector.Namespace}, nc)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// 资源已被删除，记录信息并继续
+			logger.Info("Nc资源不存在，可能已被删除",
+				"name", selector.Name,
+				"namespace", selector.Namespace)
+
+			// 返回false但不报错，表示此资源不可用但不阻止其他资源的处理
+			return false, nil
+		}
+		logger.Error(err, "获取Nc资源失败",
+			"name", selector.Name,
+			"namespace", selector.Namespace)
+		return false, err
+	}
+
+	// 检查最后执行时间，避免重复添加结果
+	if nc.Status.LastExecutionTime == nil {
+		logger.Info("Nc测试尚未执行",
+			"nc", nc.Name,
+			"namespace", nc.Namespace)
+		return false, nil
+	}
+
+	// 检查是否已包含此结果
+	for _, result := range testReport.Status.Results {
+		if result.ResourceName == nc.Name &&
+			result.ResourceNamespace == nc.Namespace &&
+			result.ResourceKind == "Nc" &&
+			result.ExecutionTime.Equal(nc.Status.LastExecutionTime) {
+			// 已存在此结果
+			logger.Info("Nc测试结果已存在",
+				"nc", nc.Name,
+				"executionTime", nc.Status.LastExecutionTime)
+			return true, nil
+		}
+	}
+
+	// 使用事件记录关联关系
+	r.Recorder.Event(nc, corev1.EventTypeNormal, "CollectedByTestReport",
+		fmt.Sprintf("结果被测试报告 %s 收集", testReport.Name))
+
+	// 添加结果
+	err = r.addNcResult(testReport, nc)
+	if err != nil {
+		logger.Error(err, "添加Nc结果失败",
+			"nc", nc.Name,
+			"namespace", nc.Namespace)
+		return false, err
+	}
+
+	logger.Info("成功添加Nc测试结果",
+		"nc", nc.Name,
+		"namespace", nc.Namespace,
+		"executionTime", nc.Status.LastExecutionTime)
+	return true, nil
+}
+
 // addDigResult adds a Dig resource's result to the test report
 func (r *TestReportReconciler) addDigResult(testReport *testtoolsv1.TestReport, dig *testtoolsv1.Dig) error {
 	// Skip if there's no execution time
@@ -634,22 +749,46 @@ func (r *TestReportReconciler) addPingResult(testReport *testtoolsv1.TestReport,
 	result.MetricValues = make(map[string]string)
 
 	// 添加响应时间指标
-	if ping.Status.PacketLoss >= 0 {
-		result.MetricValues["Packet Loss"] = fmt.Sprintf("%.1f%%", ping.Status.PacketLoss)
+	if ping.Status.PacketLoss != "" {
+		// 尝试将字符串转换为float以便格式化
+		packetLoss, err := strconv.ParseFloat(ping.Status.PacketLoss, 64)
+		if err == nil {
+			result.MetricValues["Packet Loss"] = fmt.Sprintf("%.1f%%", packetLoss)
+		} else {
+			result.MetricValues["Packet Loss"] = fmt.Sprintf("%s%%", ping.Status.PacketLoss)
+		}
 	}
-	if ping.Status.MinRtt > 0 {
-		result.MetricValues["Min RTT"] = fmt.Sprintf("%.2f ms", ping.Status.MinRtt)
+	if ping.Status.MinRtt != "" {
+		// 尝试将字符串转换为float以便格式化
+		minRtt, err := strconv.ParseFloat(ping.Status.MinRtt, 64)
+		if err == nil {
+			result.MetricValues["Min RTT"] = fmt.Sprintf("%.2f ms", minRtt)
+		} else {
+			result.MetricValues["Min RTT"] = fmt.Sprintf("%s ms", ping.Status.MinRtt)
+		}
 		result.ResponseTime = ping.Status.MinRtt
 	}
-	if ping.Status.AvgRtt > 0 {
-		result.MetricValues["Avg RTT"] = fmt.Sprintf("%.2f ms", ping.Status.AvgRtt)
+	if ping.Status.AvgRtt != "" {
+		// 尝试将字符串转换为float以便格式化
+		avgRtt, err := strconv.ParseFloat(ping.Status.AvgRtt, 64)
+		if err == nil {
+			result.MetricValues["Avg RTT"] = fmt.Sprintf("%.2f ms", avgRtt)
+		} else {
+			result.MetricValues["Avg RTT"] = fmt.Sprintf("%s ms", ping.Status.AvgRtt)
+		}
 		// 如果最小RTT未设置，则使用平均RTT作为响应时间
-		if result.ResponseTime == 0 {
+		if result.ResponseTime == "" {
 			result.ResponseTime = ping.Status.AvgRtt
 		}
 	}
-	if ping.Status.MaxRtt > 0 {
-		result.MetricValues["Max RTT"] = fmt.Sprintf("%.2f ms", ping.Status.MaxRtt)
+	if ping.Status.MaxRtt != "" {
+		// 尝试将字符串转换为float以便格式化
+		maxRtt, err := strconv.ParseFloat(ping.Status.MaxRtt, 64)
+		if err == nil {
+			result.MetricValues["Max RTT"] = fmt.Sprintf("%.2f ms", maxRtt)
+		} else {
+			result.MetricValues["Max RTT"] = fmt.Sprintf("%s ms", ping.Status.MaxRtt)
+		}
 	}
 	result.MetricValues["Query Count"] = fmt.Sprintf("%d", ping.Status.QueryCount)
 	result.MetricValues["Success Count"] = fmt.Sprintf("%d", ping.Status.SuccessCount)
@@ -667,21 +806,23 @@ func (r *TestReportReconciler) addPingResult(testReport *testtoolsv1.TestReport,
 	}
 
 	// 更新平均响应时间
-	if result.ResponseTime > 0 {
-		if testReport.Status.Summary.AverageResponseTime == 0 {
+	if len(result.ResponseTime) > 0 {
+		if len(testReport.Status.Summary.AverageResponseTime) == 0 {
 			testReport.Status.Summary.AverageResponseTime = result.ResponseTime
 		} else {
 			// 计算新的平均响应时间
 			totalSucceeded := testReport.Status.Summary.Succeeded
 			if totalSucceeded > 0 {
-				testReport.Status.Summary.AverageResponseTime = (testReport.Status.Summary.AverageResponseTime*float64(totalSucceeded-1) + result.ResponseTime) / float64(totalSucceeded)
+				averageResponseTime, _ := strconv.ParseFloat(testReport.Status.Summary.AverageResponseTime, 64)
+				responseTime, _ := strconv.ParseFloat(result.ResponseTime, 64)
+				testReport.Status.Summary.AverageResponseTime = fmt.Sprintf("%f", (averageResponseTime*float64(totalSucceeded-1)+responseTime)/float64(totalSucceeded))
 			}
 		}
 	}
 
 	// 更新最小和最大响应时间
-	if result.ResponseTime > 0 {
-		if testReport.Status.Summary.MinResponseTime == 0 || result.ResponseTime < testReport.Status.Summary.MinResponseTime {
+	if len(result.ResponseTime) > 0 {
+		if len(testReport.Status.Summary.MinResponseTime) == 0 || result.ResponseTime < testReport.Status.Summary.MinResponseTime {
 			testReport.Status.Summary.MinResponseTime = result.ResponseTime
 		}
 		if result.ResponseTime > testReport.Status.Summary.MaxResponseTime {
@@ -706,7 +847,7 @@ func (r *TestReportReconciler) addFioResult(testReport *testtoolsv1.TestReport, 
 		ResourceKind:      "Fio",
 		ExecutionTime:     *fio.Status.LastExecutionTime,
 		Success:           fio.Status.Status == "Succeeded",
-		ResponseTime:      0, // FIO没有响应时间的概念
+		ResponseTime:      "0", // FIO没有响应时间的概念
 		Output:            formatFioOutput(fio.Status.Stats),
 		RawOutput:         fio.Status.LastResult,
 	}
@@ -716,12 +857,12 @@ func (r *TestReportReconciler) addFioResult(testReport *testtoolsv1.TestReport, 
 		"QueryCount":   fmt.Sprintf("%d", fio.Status.QueryCount),
 		"SuccessCount": fmt.Sprintf("%d", fio.Status.SuccessCount),
 		"FailureCount": fmt.Sprintf("%d", fio.Status.FailureCount),
-		"ReadIOPS":     fmt.Sprintf("%.2f", fio.Status.Stats.ReadIOPS),
-		"WriteIOPS":    fmt.Sprintf("%.2f", fio.Status.Stats.WriteIOPS),
-		"ReadBW":       fmt.Sprintf("%.2f KB/s", fio.Status.Stats.ReadBW),
-		"WriteBW":      fmt.Sprintf("%.2f KB/s", fio.Status.Stats.WriteBW),
-		"ReadLatency":  fmt.Sprintf("%.2f μs", fio.Status.Stats.ReadLatency),
-		"WriteLatency": fmt.Sprintf("%.2f μs", fio.Status.Stats.WriteLatency),
+		"ReadIOPS":     fmt.Sprintf("%s", fio.Status.Stats.ReadIOPS),
+		"WriteIOPS":    fmt.Sprintf("%s", fio.Status.Stats.WriteIOPS),
+		"ReadBW":       fmt.Sprintf("%s KB/s", fio.Status.Stats.ReadBW),
+		"WriteBW":      fmt.Sprintf("%s KB/s", fio.Status.Stats.WriteBW),
+		"ReadLatency":  fmt.Sprintf("%s μs", fio.Status.Stats.ReadLatency),
+		"WriteLatency": fmt.Sprintf("%s μs", fio.Status.Stats.WriteLatency),
 	}
 
 	// 记录添加的结果详情
@@ -775,14 +916,50 @@ func formatFioOutput(stats testtoolsv1.FioStats) string {
 
 	sb.WriteString("FIO测试结果摘要:\n\n")
 	sb.WriteString(fmt.Sprintf("读取性能:\n"))
-	sb.WriteString(fmt.Sprintf("  IOPS: %.2f\n", stats.ReadIOPS))
-	sb.WriteString(fmt.Sprintf("  带宽: %.2f KB/s\n", stats.ReadBW))
-	sb.WriteString(fmt.Sprintf("  延迟: %.2f μs\n", stats.ReadLatency))
+
+	// 添加IOPS数据，如果为空则显示为0
+	readIOPS := "0"
+	if stats.ReadIOPS != "" {
+		readIOPS = stats.ReadIOPS
+	}
+	sb.WriteString(fmt.Sprintf("  IOPS: %s\n", readIOPS))
+
+	// 添加带宽数据，如果为空则显示为0
+	readBW := "0"
+	if stats.ReadBW != "" {
+		readBW = stats.ReadBW
+	}
+	sb.WriteString(fmt.Sprintf("  带宽: %s KB/s\n", readBW))
+
+	// 添加延迟数据，如果为空则显示为0
+	readLatency := "0.00"
+	if stats.ReadLatency != "" {
+		readLatency = stats.ReadLatency
+	}
+	sb.WriteString(fmt.Sprintf("  延迟: %s μs\n", readLatency))
 
 	sb.WriteString(fmt.Sprintf("\n写入性能:\n"))
-	sb.WriteString(fmt.Sprintf("  IOPS: %.2f\n", stats.WriteIOPS))
-	sb.WriteString(fmt.Sprintf("  带宽: %.2f KB/s\n", stats.WriteBW))
-	sb.WriteString(fmt.Sprintf("  延迟: %.2f μs\n", stats.WriteLatency))
+
+	// 添加IOPS数据，如果为空则显示为0
+	writeIOPS := "0"
+	if stats.WriteIOPS != "" {
+		writeIOPS = stats.WriteIOPS
+	}
+	sb.WriteString(fmt.Sprintf("  IOPS: %s\n", writeIOPS))
+
+	// 添加带宽数据，如果为空则显示为0
+	writeBW := "0"
+	if stats.WriteBW != "" {
+		writeBW = stats.WriteBW
+	}
+	sb.WriteString(fmt.Sprintf("  带宽: %s KB/s\n", writeBW))
+
+	// 添加延迟数据，如果为空则显示为0
+	writeLatency := "0.00"
+	if stats.WriteLatency != "" {
+		writeLatency = stats.WriteLatency
+	}
+	sb.WriteString(fmt.Sprintf("  延迟: %s μs\n", writeLatency))
 
 	return sb.String()
 }
@@ -1004,6 +1181,14 @@ func (r *TestReportReconciler) findTestReportForResource(ctx context.Context, ob
 			resourceKind = "Ping"
 		case *testtoolsv1.Fio:
 			resourceKind = "Fio"
+		case *testtoolsv1.Nc:
+			resourceKind = "Nc"
+		case *testtoolsv1.TcpPing:
+			resourceKind = "TcpPing"
+		case *testtoolsv1.Iperf:
+			resourceKind = "Iperf"
+		case *testtoolsv1.Skoop:
+			resourceKind = "Skoop"
 		default:
 			logger.Error(fmt.Errorf("unknown resource type"), "无法确定资源类型")
 			return nil
@@ -1092,6 +1277,14 @@ func (r *TestReportReconciler) shouldCreateTestReport(ctx context.Context, obj c
 			resourceKind = "Ping"
 		case *testtoolsv1.Fio:
 			resourceKind = "Fio"
+		case *testtoolsv1.Nc:
+			resourceKind = "Nc"
+		case *testtoolsv1.TcpPing:
+			resourceKind = "TcpPing"
+		case *testtoolsv1.Iperf:
+			resourceKind = "Iperf"
+		case *testtoolsv1.Skoop:
+			resourceKind = "Skoop"
 		default:
 			logger.Error(fmt.Errorf("unknown resource type"), "无法确定资源类型")
 			return false
@@ -1119,6 +1312,18 @@ func (r *TestReportReconciler) shouldCreateTestReport(ctx context.Context, obj c
 		status = string(v.Status.Status)
 		testReportName = v.Status.TestReportName
 	case *testtoolsv1.Fio:
+		status = string(v.Status.Status)
+		testReportName = v.Status.TestReportName
+	case *testtoolsv1.Nc:
+		status = string(v.Status.Status)
+		testReportName = v.Status.TestReportName
+	case *testtoolsv1.TcpPing:
+		status = string(v.Status.Status)
+		testReportName = v.Status.TestReportName
+	case *testtoolsv1.Iperf:
+		status = string(v.Status.Status)
+		testReportName = v.Status.TestReportName
+	case *testtoolsv1.Skoop:
 		status = string(v.Status.Status)
 		testReportName = v.Status.TestReportName
 	default:
@@ -1198,6 +1403,18 @@ func (r *TestReportReconciler) createTestReportForResource(ctx context.Context, 
 			apiVersion = "testtools.xiaoming.com/v1"
 		case *testtoolsv1.Fio:
 			resourceKind = "Fio"
+			apiVersion = "testtools.xiaoming.com/v1"
+		case *testtoolsv1.Nc:
+			resourceKind = "Nc"
+			apiVersion = "testtools.xiaoming.com/v1"
+		case *testtoolsv1.TcpPing:
+			resourceKind = "TcpPing"
+			apiVersion = "testtools.xiaoming.com/v1"
+		case *testtoolsv1.Iperf:
+			resourceKind = "Iperf"
+			apiVersion = "testtools.xiaoming.com/v1"
+		case *testtoolsv1.Skoop:
+			resourceKind = "Skoop"
 			apiVersion = "testtools.xiaoming.com/v1"
 		default:
 			return nil, fmt.Errorf("unknown resource type")
@@ -1347,5 +1564,492 @@ func (r *TestReportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&testtoolsv1.Fio{},
 			handler.EnqueueRequestsFromMapFunc(r.findTestReportForResource),
 		).
+		Watches(
+			&testtoolsv1.Nc{},
+			handler.EnqueueRequestsFromMapFunc(r.findTestReportForResource),
+		).
+		Watches(
+			&testtoolsv1.TcpPing{},
+			handler.EnqueueRequestsFromMapFunc(r.findTestReportForResource),
+		).
+		Watches(
+			&testtoolsv1.Iperf{},
+			handler.EnqueueRequestsFromMapFunc(r.findTestReportForResource),
+		).
+		Watches(
+			&testtoolsv1.Skoop{},
+			handler.EnqueueRequestsFromMapFunc(r.findTestReportForResource),
+		).
 		Complete(r)
+}
+
+// addNcResult 添加 Nc 测试结果到测试报告
+func (r *TestReportReconciler) addNcResult(testReport *testtoolsv1.TestReport, nc *testtoolsv1.Nc) error {
+	// 创建结果记录
+	result := testtoolsv1.TestResult{
+		ResourceKind:      "Nc",
+		ResourceName:      nc.Name,
+		ResourceNamespace: nc.Namespace,
+		ExecutionTime:     *nc.Status.LastExecutionTime,
+		Success:           nc.Status.ConnectionSuccess,
+		ResponseTime:      nc.Status.ConnectionLatency,
+	}
+
+	// 设置输出摘要
+	result.Output = fmt.Sprintf("主机: %s, 端口: %d, 协议: %s, 连接成功: %t, 延迟: %s",
+		nc.Spec.Host,
+		nc.Spec.Port,
+		nc.Spec.Protocol,
+		nc.Status.ConnectionSuccess,
+		nc.Status.ConnectionLatency)
+
+	// 提取原始输出
+	if nc.Status.LastResult != "" {
+		result.RawOutput = nc.Status.LastResult
+		// 如果原始输出过长，则截断
+		if len(result.RawOutput) > 5000 {
+			result.RawOutput = result.RawOutput[:5000] + "... (输出已截断)"
+		}
+	}
+
+	// 添加统计信息
+	result.MetricValues = map[string]string{
+		"连接成功":     fmt.Sprintf("%t", nc.Status.ConnectionSuccess),
+		"连接延迟(ms)": nc.Status.ConnectionLatency,
+		"协议":       nc.Spec.Protocol,
+		"主机":       nc.Spec.Host,
+		"端口":       fmt.Sprintf("%d", nc.Spec.Port),
+		"查询次数":     fmt.Sprintf("%d", nc.Status.QueryCount),
+		"成功次数":     fmt.Sprintf("%d", nc.Status.SuccessCount),
+		"失败次数":     fmt.Sprintf("%d", nc.Status.FailureCount),
+	}
+
+	// 添加结果到报告
+	testReport.Status.Results = append(testReport.Status.Results, result)
+
+	// 更新汇总计数
+	testReport.Status.Summary.Total++
+	if nc.Status.Status == "Succeeded" || nc.Status.ConnectionSuccess {
+		testReport.Status.Summary.Succeeded++
+	} else {
+		testReport.Status.Summary.Failed++
+	}
+
+	return nil
+}
+
+// collectTcpPingResults 收集 TcpPing 资源的结果
+func (r *TestReportReconciler) collectTcpPingResults(ctx context.Context, testReport *testtoolsv1.TestReport, selector testtoolsv1.ResourceSelector, logger logr.Logger) (bool, error) {
+	tcpPing := &testtoolsv1.TcpPing{}
+	err := r.Get(ctx, types.NamespacedName{Name: selector.Name, Namespace: selector.Namespace}, tcpPing)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// 资源已被删除，记录信息并继续
+			logger.Info("TcpPing资源不存在，可能已被删除",
+				"name", selector.Name,
+				"namespace", selector.Namespace)
+
+			// 返回false但不报错，表示此资源不可用但不阻止其他资源的处理
+			return false, nil
+		}
+		logger.Error(err, "获取TcpPing资源失败",
+			"name", selector.Name,
+			"namespace", selector.Namespace)
+		return false, err
+	}
+
+	// 检查最后执行时间，避免重复添加结果
+	if tcpPing.Status.LastExecutionTime == nil {
+		logger.Info("TcpPing测试尚未执行",
+			"tcpPing", tcpPing.Name,
+			"namespace", tcpPing.Namespace)
+		return false, nil
+	}
+
+	// 检查是否已包含此结果
+	for _, result := range testReport.Status.Results {
+		if result.ResourceName == tcpPing.Name &&
+			result.ResourceNamespace == tcpPing.Namespace &&
+			result.ResourceKind == "TcpPing" &&
+			result.ExecutionTime.Equal(tcpPing.Status.LastExecutionTime) {
+			// 已存在此结果
+			logger.Info("TcpPing测试结果已存在",
+				"tcpPing", tcpPing.Name,
+				"executionTime", tcpPing.Status.LastExecutionTime)
+			return true, nil
+		}
+	}
+
+	// 使用事件记录关联关系
+	r.Recorder.Event(tcpPing, corev1.EventTypeNormal, "CollectedByTestReport",
+		fmt.Sprintf("结果被测试报告 %s 收集", testReport.Name))
+
+	// 添加结果
+	err = r.addTcpPingResult(testReport, tcpPing)
+	if err != nil {
+		logger.Error(err, "添加TcpPing结果失败",
+			"tcpPing", tcpPing.Name,
+			"namespace", tcpPing.Namespace)
+		return false, err
+	}
+
+	logger.Info("成功添加TcpPing测试结果",
+		"tcpPing", tcpPing.Name,
+		"namespace", tcpPing.Namespace,
+		"executionTime", tcpPing.Status.LastExecutionTime)
+	return true, nil
+}
+
+// addTcpPingResult 添加 TcpPing 测试结果到测试报告
+func (r *TestReportReconciler) addTcpPingResult(testReport *testtoolsv1.TestReport, tcpPing *testtoolsv1.TcpPing) error {
+	// 创建结果记录
+	result := testtoolsv1.TestResult{
+		ResourceKind:      "TcpPing",
+		ResourceName:      tcpPing.Name,
+		ResourceNamespace: tcpPing.Namespace,
+		ExecutionTime:     *tcpPing.Status.LastExecutionTime,
+		Success:           tcpPing.Status.Stats.Received > 0,
+		ResponseTime:      tcpPing.Status.Stats.AvgLatency,
+	}
+
+	// 设置输出摘要
+	result.Output = fmt.Sprintf("主机: %s, 端口: %d, 发送: %d, 接收: %d, 丢包率: %s, 平均延迟: %s",
+		tcpPing.Spec.Host,
+		tcpPing.Spec.Port,
+		tcpPing.Status.Stats.Transmitted,
+		tcpPing.Status.Stats.Received,
+		tcpPing.Status.Stats.PacketLoss,
+		tcpPing.Status.Stats.AvgLatency)
+
+	// 提取原始输出
+	if tcpPing.Status.LastResult != "" {
+		result.RawOutput = tcpPing.Status.LastResult
+		// 如果原始输出过长，则截断
+		if len(result.RawOutput) > 5000 {
+			result.RawOutput = result.RawOutput[:5000] + "... (输出已截断)"
+		}
+	}
+
+	// 添加统计信息
+	result.MetricValues = map[string]string{
+		"主机":        tcpPing.Spec.Host,
+		"端口":        fmt.Sprintf("%d", tcpPing.Spec.Port),
+		"发送包数":      fmt.Sprintf("%d", tcpPing.Status.Stats.Transmitted),
+		"接收包数":      fmt.Sprintf("%d", tcpPing.Status.Stats.Received),
+		"丢包率":       tcpPing.Status.Stats.PacketLoss,
+		"最小延迟(ms)":  tcpPing.Status.Stats.MinLatency,
+		"平均延迟(ms)":  tcpPing.Status.Stats.AvgLatency,
+		"最大延迟(ms)":  tcpPing.Status.Stats.MaxLatency,
+		"延迟标准差(ms)": tcpPing.Status.Stats.StdDevLatency,
+		"查询次数":      fmt.Sprintf("%d", tcpPing.Status.QueryCount),
+		"成功次数":      fmt.Sprintf("%d", tcpPing.Status.SuccessCount),
+		"失败次数":      fmt.Sprintf("%d", tcpPing.Status.FailureCount),
+	}
+
+	// 添加结果到报告
+	testReport.Status.Results = append(testReport.Status.Results, result)
+
+	// 更新汇总计数
+	testReport.Status.Summary.Total++
+	if tcpPing.Status.Status == "Succeeded" || tcpPing.Status.Stats.Received > 0 {
+		testReport.Status.Summary.Succeeded++
+	} else {
+		testReport.Status.Summary.Failed++
+	}
+
+	return nil
+}
+
+// collectIperfResults 收集 Iperf 资源的结果
+func (r *TestReportReconciler) collectIperfResults(ctx context.Context, testReport *testtoolsv1.TestReport, selector testtoolsv1.ResourceSelector, logger logr.Logger) (bool, error) {
+	iperf := &testtoolsv1.Iperf{}
+	err := r.Get(ctx, types.NamespacedName{Name: selector.Name, Namespace: selector.Namespace}, iperf)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// 资源已被删除，记录信息并继续
+			logger.Info("Iperf资源不存在，可能已被删除",
+				"name", selector.Name,
+				"namespace", selector.Namespace)
+
+			// 返回false但不报错，表示此资源不可用但不阻止其他资源的处理
+			return false, nil
+		}
+		logger.Error(err, "获取Iperf资源失败",
+			"name", selector.Name,
+			"namespace", selector.Namespace)
+		return false, err
+	}
+
+	// 检查最后执行时间，避免重复添加结果
+	if iperf.Status.LastExecutionTime == nil {
+		logger.Info("Iperf测试尚未执行",
+			"iperf", iperf.Name,
+			"namespace", iperf.Namespace)
+		return false, nil
+	}
+
+	// 检查是否已包含此结果
+	for _, result := range testReport.Status.Results {
+		if result.ResourceName == iperf.Name &&
+			result.ResourceNamespace == iperf.Namespace &&
+			result.ResourceKind == "Iperf" &&
+			result.ExecutionTime.Equal(iperf.Status.LastExecutionTime) {
+			// 已存在此结果
+			logger.Info("Iperf测试结果已存在",
+				"iperf", iperf.Name,
+				"executionTime", iperf.Status.LastExecutionTime)
+			return true, nil
+		}
+	}
+
+	// 使用事件记录关联关系
+	r.Recorder.Event(iperf, corev1.EventTypeNormal, "CollectedByTestReport",
+		fmt.Sprintf("结果被测试报告 %s 收集", testReport.Name))
+
+	// 添加结果
+	err = r.addIperfResult(testReport, iperf)
+	if err != nil {
+		logger.Error(err, "添加Iperf结果失败",
+			"iperf", iperf.Name,
+			"namespace", iperf.Namespace)
+		return false, err
+	}
+
+	logger.Info("成功添加Iperf测试结果",
+		"iperf", iperf.Name,
+		"namespace", iperf.Namespace,
+		"executionTime", iperf.Status.LastExecutionTime)
+	return true, nil
+}
+
+// addIperfResult 添加 Iperf 测试结果到测试报告
+func (r *TestReportReconciler) addIperfResult(testReport *testtoolsv1.TestReport, iperf *testtoolsv1.Iperf) error {
+	// 创建结果记录
+	result := testtoolsv1.TestResult{
+		ResourceKind:      "Iperf",
+		ResourceName:      iperf.Name,
+		ResourceNamespace: iperf.Namespace,
+		ExecutionTime:     *iperf.Status.LastExecutionTime,
+		Success:           iperf.Status.Status == "Succeeded",
+		ResponseTime:      iperf.Status.Stats.RttMs,
+	}
+
+	// 设置输出摘要
+	if iperf.Spec.Mode == "client" {
+		result.Output = fmt.Sprintf("主机: %s, 端口: %d, 协议: %s, 发送带宽: %s, 接收带宽: %s, RTT: %s",
+			iperf.Spec.Host,
+			iperf.Spec.Port,
+			iperf.Spec.Protocol,
+			iperf.Status.Stats.SendBandwidth,
+			iperf.Status.Stats.ReceiveBandwidth,
+			iperf.Status.Stats.RttMs)
+	} else {
+		result.Output = fmt.Sprintf("监听端口: %d, 协议: %s, 模式: %s",
+			iperf.Spec.Port,
+			iperf.Spec.Protocol,
+			iperf.Spec.Mode)
+	}
+
+	// 提取原始输出
+	if iperf.Status.LastResult != "" {
+		result.RawOutput = iperf.Status.LastResult
+		// 如果原始输出过长，则截断
+		if len(result.RawOutput) > 5000 {
+			result.RawOutput = result.RawOutput[:5000] + "... (输出已截断)"
+		}
+	}
+
+	// 添加统计信息
+	result.MetricValues = map[string]string{
+		"主机":      iperf.Spec.Host,
+		"端口":      fmt.Sprintf("%d", iperf.Spec.Port),
+		"协议":      iperf.Spec.Protocol,
+		"模式":      iperf.Spec.Mode,
+		"发送带宽":    iperf.Status.Stats.SendBandwidth,
+		"接收带宽":    iperf.Status.Stats.ReceiveBandwidth,
+		"RTT(ms)": iperf.Status.Stats.RttMs,
+		"抖动(ms)":  iperf.Status.Stats.Jitter,
+		"丢包数":     fmt.Sprintf("%d", iperf.Status.Stats.LostPackets),
+		"丢包率":     iperf.Status.Stats.LostPercent,
+		"重传次数":    fmt.Sprintf("%d", iperf.Status.Stats.Retransmits),
+		"CPU利用率":  iperf.Status.Stats.CpuUtilization,
+		"查询次数":    fmt.Sprintf("%d", iperf.Status.QueryCount),
+		"成功次数":    fmt.Sprintf("%d", iperf.Status.SuccessCount),
+		"失败次数":    fmt.Sprintf("%d", iperf.Status.FailureCount),
+	}
+
+	// 添加结果到报告
+	testReport.Status.Results = append(testReport.Status.Results, result)
+
+	// 更新汇总计数
+	testReport.Status.Summary.Total++
+	if iperf.Status.Status == "Succeeded" {
+		testReport.Status.Summary.Succeeded++
+	} else {
+		testReport.Status.Summary.Failed++
+	}
+
+	return nil
+}
+
+// collectSkoopResults 收集 Skoop 资源的结果
+func (r *TestReportReconciler) collectSkoopResults(ctx context.Context, testReport *testtoolsv1.TestReport, selector testtoolsv1.ResourceSelector, logger logr.Logger) (bool, error) {
+	skoop := &testtoolsv1.Skoop{}
+	err := r.Get(ctx, types.NamespacedName{Name: selector.Name, Namespace: selector.Namespace}, skoop)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// 资源已被删除，记录信息并继续
+			logger.Info("Skoop资源不存在，可能已被删除",
+				"name", selector.Name,
+				"namespace", selector.Namespace)
+
+			// 返回false但不报错，表示此资源不可用但不阻止其他资源的处理
+			return false, nil
+		}
+		logger.Error(err, "获取Skoop资源失败",
+			"name", selector.Name,
+			"namespace", selector.Namespace)
+		return false, err
+	}
+
+	// 检查最后执行时间，避免重复添加结果
+	if skoop.Status.LastExecutionTime == nil {
+		logger.Info("Skoop测试尚未执行",
+			"skoop", skoop.Name,
+			"namespace", skoop.Namespace)
+		return false, nil
+	}
+
+	// 检查是否已包含此结果
+	for _, result := range testReport.Status.Results {
+		if result.ResourceName == skoop.Name &&
+			result.ResourceNamespace == skoop.Namespace &&
+			result.ResourceKind == "Skoop" &&
+			result.ExecutionTime.Equal(skoop.Status.LastExecutionTime) {
+			// 已存在此结果
+			logger.Info("Skoop测试结果已存在",
+				"skoop", skoop.Name,
+				"executionTime", skoop.Status.LastExecutionTime)
+			return true, nil
+		}
+	}
+
+	// 使用事件记录关联关系
+	r.Recorder.Event(skoop, corev1.EventTypeNormal, "CollectedByTestReport",
+		fmt.Sprintf("结果被测试报告 %s 收集", testReport.Name))
+
+	// 添加结果
+	err = r.addSkoopResult(testReport, skoop)
+	if err != nil {
+		logger.Error(err, "添加Skoop结果失败",
+			"skoop", skoop.Name,
+			"namespace", skoop.Namespace)
+		return false, err
+	}
+
+	logger.Info("成功添加Skoop测试结果",
+		"skoop", skoop.Name,
+		"namespace", skoop.Namespace,
+		"executionTime", skoop.Status.LastExecutionTime)
+	return true, nil
+}
+
+// addSkoopResult 添加 Skoop 测试结果到测试报告
+func (r *TestReportReconciler) addSkoopResult(testReport *testtoolsv1.TestReport, skoop *testtoolsv1.Skoop) error {
+	// 找出网络路径中的延迟
+	var latency string
+	if len(skoop.Status.Path) > 0 {
+		for _, node := range skoop.Status.Path {
+			if node.LatencyMs != "" {
+				latency = node.LatencyMs
+				break
+			}
+		}
+	}
+
+	// 创建结果记录
+	result := testtoolsv1.TestResult{
+		ResourceKind:      "Skoop",
+		ResourceName:      skoop.Name,
+		ResourceNamespace: skoop.Namespace,
+		ExecutionTime:     *skoop.Status.LastExecutionTime,
+		Success:           skoop.Status.Status == "Succeeded",
+		ResponseTime:      latency,
+	}
+
+	// 设置输出摘要
+	result.Output = fmt.Sprintf("源地址: %s, 目标地址: %s, 端口: %d, 协议: %s, 状态: %s",
+		skoop.Spec.Task.SourceAddress,
+		skoop.Spec.Task.DestinationAddress,
+		skoop.Spec.Task.DestinationPort,
+		skoop.Spec.Task.Protocol,
+		skoop.Status.Status)
+
+	// 提取原始输出
+	if skoop.Status.LastResult != "" {
+		result.RawOutput = skoop.Status.LastResult
+		// 如果原始输出过长，则截断
+		if len(result.RawOutput) > 5000 {
+			result.RawOutput = result.RawOutput[:5000] + "... (输出已截断)"
+		}
+	}
+
+	// 添加诊断概要
+	if skoop.Status.Summary != "" {
+		if result.Output != "" {
+			result.Output += "\n"
+		}
+		result.Output += "诊断概要: " + skoop.Status.Summary
+	}
+
+	// 添加统计信息
+	result.MetricValues = map[string]string{
+		"源地址":  skoop.Spec.Task.SourceAddress,
+		"目标地址": skoop.Spec.Task.DestinationAddress,
+		"目标端口": fmt.Sprintf("%d", skoop.Spec.Task.DestinationPort),
+		"协议":   skoop.Spec.Task.Protocol,
+		"状态":   skoop.Status.Status,
+	}
+
+	// 添加路径节点信息
+	if len(skoop.Status.Path) > 0 {
+		for i, node := range skoop.Status.Path {
+			nodeKey := fmt.Sprintf("路径节点%d", i+1)
+			nodeValue := fmt.Sprintf("%s(%s)", node.Name, node.Type)
+			if node.IP != "" {
+				nodeValue += fmt.Sprintf(", IP: %s", node.IP)
+			}
+			if node.LatencyMs != "" {
+				nodeValue += fmt.Sprintf(", 延迟: %s ms", node.LatencyMs)
+			}
+			result.MetricValues[nodeKey] = nodeValue
+		}
+	}
+
+	// 添加问题信息
+	if len(skoop.Status.Issues) > 0 {
+		for i, issue := range skoop.Status.Issues {
+			issueKey := fmt.Sprintf("问题%d", i+1)
+			issueValue := fmt.Sprintf("%s: %s", issue.Level, issue.Message)
+			result.MetricValues[issueKey] = issueValue
+		}
+	}
+
+	// 添加其他统计信息
+	result.MetricValues["查询次数"] = fmt.Sprintf("%d", skoop.Status.QueryCount)
+	result.MetricValues["成功次数"] = fmt.Sprintf("%d", skoop.Status.SuccessCount)
+	result.MetricValues["失败次数"] = fmt.Sprintf("%d", skoop.Status.FailureCount)
+
+	// 添加结果到报告
+	testReport.Status.Results = append(testReport.Status.Results, result)
+
+	// 更新汇总计数
+	testReport.Status.Summary.Total++
+	if skoop.Status.Status == "Succeeded" {
+		testReport.Status.Summary.Succeeded++
+	} else {
+		testReport.Status.Summary.Failed++
+	}
+
+	return nil
 }

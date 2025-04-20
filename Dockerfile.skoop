@@ -1,0 +1,6 @@
+FROM kubeskoop/kubeskoop:latest
+
+# 设置工作目录
+WORKDIR /app
+
+CMD ["bash"] 

@@ -109,37 +109,46 @@ type FioSpec struct {
 	// RetainJobPods controls whether to retain the completed Job and Pods
 	// +kubebuilder:default=false
 	RetainJobPods bool `json:"retainJobPods,omitempty"`
+
+	// NodeSelector is a selector which must be true for the pod to fit on a node.
+	// +optional
+	// +mapType=atomic
+	NodeSelector map[string]string `json:"nodeSelector,omitempty" protobuf:"bytes,7,rep,name=nodeSelector"`
+
+	// NodeName indicates in which node this pod is scheduled.
+	// +optional
+	NodeName string `json:"nodeName,omitempty" protobuf:"bytes,10,opt,name=nodeName"`
 }
 
 // FioStats contains performance statistics for an FIO test
 type FioStats struct {
 	// ReadIOPS is the read I/O operations per second
 	// +optional
-	ReadIOPS float64 `json:"readIOPS,omitempty"`
+	ReadIOPS string `json:"readIOPS,omitempty"`
 
 	// WriteIOPS is the write I/O operations per second
 	// +optional
-	WriteIOPS float64 `json:"writeIOPS,omitempty"`
+	WriteIOPS string `json:"writeIOPS,omitempty"`
 
 	// ReadBW is the read bandwidth in KiB/s
 	// +optional
-	ReadBW float64 `json:"readBW,omitempty"`
+	ReadBW string `json:"readBW,omitempty"`
 
 	// WriteBW is the write bandwidth in KiB/s
 	// +optional
-	WriteBW float64 `json:"writeBW,omitempty"`
+	WriteBW string `json:"writeBW,omitempty"`
 
 	// ReadLatency is the average read latency in microseconds
 	// +optional
-	ReadLatency float64 `json:"readLatency,omitempty"`
+	ReadLatency string `json:"readLatency,omitempty"`
 
 	// WriteLatency is the average write latency in microseconds
 	// +optional
-	WriteLatency float64 `json:"writeLatency,omitempty"`
+	WriteLatency string `json:"writeLatency,omitempty"`
 
 	// LatencyPercentiles contains percentile latency values
 	// +optional
-	LatencyPercentiles map[string]float64 `json:"latencyPercentiles,omitempty"`
+	LatencyPercentiles map[string]string `json:"latencyPercentiles,omitempty"`
 }
 
 // FioStatus defines the observed state of Fio
@@ -196,11 +205,11 @@ type FioStatus struct {
 // +kubebuilder:printcolumn:name="QueryCount",type="integer",JSONPath=".status.queryCount"
 // +kubebuilder:printcolumn:name="Succeeded",type="integer",JSONPath=".status.successCount"
 // +kubebuilder:printcolumn:name="Failed",type="integer",JSONPath=".status.failureCount"
-// +kubebuilder:printcolumn:name="ReadIOPS",type="number",JSONPath=".status.stats.readIOPS",priority=1
-// +kubebuilder:printcolumn:name="WriteIOPS",type="number",JSONPath=".status.stats.writeIOPS",priority=1
-// +kubebuilder:printcolumn:name="ReadBW",type="number",JSONPath=".status.stats.readBW",priority=1
-// +kubebuilder:printcolumn:name="WriteBW",type="number",JSONPath=".status.stats.writeBW",priority=1
-// +kubebuilder:printcolumn:name="ReadLat",type="number",JSONPath=".status.stats.readLatency",priority=1
+// +kubebuilder:printcolumn:name="ReadIOPS",type="string",JSONPath=".status.stats.readIOPS",priority=1
+// +kubebuilder:printcolumn:name="WriteIOPS",type="string",JSONPath=".status.stats.writeIOPS",priority=1
+// +kubebuilder:printcolumn:name="ReadBW",type="string",JSONPath=".status.stats.readBW",priority=1
+// +kubebuilder:printcolumn:name="WriteBW",type="string",JSONPath=".status.stats.writeBW",priority=1
+// +kubebuilder:printcolumn:name="ReadLat",type="string",JSONPath=".status.stats.readLatency",priority=1
 // +kubebuilder:printcolumn:name="LastRun",type="date",JSONPath=".status.lastExecutionTime"
 // +kubebuilder:printcolumn:name="TestReport",type="string",JSONPath=".status.testReportName"
 // Fio is the Schema for the fios API

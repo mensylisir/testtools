@@ -1,0 +1,25 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Skoop
+metadata:
+  name: skoop-sample-advanced
+  labels:
+    app: network-tools
+    type: traffic-analysis
+spec:
+  task:
+    sourceAddress: "10.0.0.5"
+    destinationAddress: "10.0.0.10"
+    destinationPort: 80
+    protocol: "tcp"
+  logging:
+    verbosity: 4
+    logToStderr: true
+  ui:
+    format: "json"
+    enableHTTP: true
+    httpAddress: "0.0.0.0:8080"
+  collector:
+    preserveCollectorPod: true
+  timeout: 300
+  schedule: "3600"
+  image: "192.168.31.34:18093/testtools-skoop:v3"

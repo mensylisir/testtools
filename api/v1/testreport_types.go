@@ -106,7 +106,7 @@ type TestResult struct {
 
 	// ResponseTime is the response time in milliseconds
 	// +optional
-	ResponseTime float64 `json:"responseTime,omitempty"`
+	ResponseTime string `json:"responseTime,omitempty"`
 
 	// Output contains the formatted test output
 	// +optional
@@ -177,15 +177,15 @@ type TestSummary struct {
 
 	// Average response time across all tests in milliseconds
 	// +optional
-	AverageResponseTime float64 `json:"averageResponseTime,omitempty"`
+	AverageResponseTime string `json:"averageResponseTime,omitempty"`
 
 	// Min response time across all tests in milliseconds
 	// +optional
-	MinResponseTime float64 `json:"minResponseTime,omitempty"`
+	MinResponseTime string `json:"minResponseTime,omitempty"`
 
 	// Max response time across all tests in milliseconds
 	// +optional
-	MaxResponseTime float64 `json:"maxResponseTime,omitempty"`
+	MaxResponseTime string `json:"maxResponseTime,omitempty"`
 
 	// Additional metrics
 	// +optional
@@ -218,7 +218,7 @@ type AnalyticsConfig struct {
 type AlertConfig struct {
 	// Thresholds设置各指标的告警阈值
 	// +optional
-	Thresholds map[string]float64 `json:"thresholds,omitempty"`
+	Thresholds map[string]string `json:"thresholds,omitempty"`
 
 	// AlertChannels设置告警通道
 	// +optional
@@ -255,11 +255,11 @@ type Analytics struct {
 
 	// ChangeRate 包含各指标的变化率
 	// +optional
-	ChangeRate map[string]float64 `json:"changeRate,omitempty"`
+	ChangeRate map[string]string `json:"changeRate,omitempty"`
 
 	// BaselineComparison 与基准比较的结果
 	// +optional
-	BaselineComparison map[string]float64 `json:"baselineComparison,omitempty"`
+	BaselineComparison map[string]string `json:"baselineComparison,omitempty"`
 }
 
 // Anomaly 表示检测到的异常
@@ -268,7 +268,7 @@ type Anomaly struct {
 	Metric string `json:"metric"`
 
 	// 异常指标的值
-	Value float64 `json:"value"`
+	Value string `json:"value"`
 
 	// 异常检测到的时间
 	DetectionTime metav1.Time `json:"detectionTime"`

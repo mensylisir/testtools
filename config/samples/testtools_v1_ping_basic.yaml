@@ -5,4 +5,4 @@ metadata:
 spec:
   host: "baidu.com"
   # 指定镜像
-  image: "registry.dev.rdev.tech:18093/testtools-ping:v1"
+  image: "192.168.31.34:18093/testtools-ping:v3"

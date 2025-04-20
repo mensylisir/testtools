@@ -34,7 +34,6 @@ import (
 
 	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
 	"github.com/xiaoming/testtools/pkg/utils"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/record"
 )
@@ -201,158 +200,52 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 	} else {
 		if job.Status.Succeeded > 0 {
 			logger.Info("Job completed successfully", "ping", req.Name, "jobName", jobName, "namespace", req.Namespace)
-		} else if job.Status.Failed > *job.Spec.BackoffLimit {
-			logger.Error(nil, "Job failed", "ping", req.Name, "jobName", jobName, "namespace", req.Namespace,
-				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
-		} else {
-			logger.Info("Job is still running", "ping", req.Name, "jobName", jobName, "namespace", req.Namespace,
-				"succeeded", job.Status.Succeeded, "failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
-			return ctrl.Result{RequeueAfter: time.Second * 30}, nil
-		}
-	}
 
-	// 等待 Job 完成
-	//logger.Info("Waiting for Ping job to complete", "jobName", jobName)
-	//err = utils.WaitForJob(ctx, r.Client, ping.Namespace, jobName, 5*time.Minute)
-	//if err != nil {
-	//	logger.Error(err, "Failed while waiting for Ping job to complete")
-	//	pingCopy.Status.Status = "Failed"
-	//	pingCopy.Status.FailureCount++
-	//	pingCopy.Status.LastResult = fmt.Sprintf("Error waiting for Ping job: %v", err)
-	//
-	//	// 添加失败条件
-	//	utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
-	//		Type:               "Failed",
-	//		Status:             metav1.ConditionTrue,
-	//		LastTransitionTime: now,
-	//		Reason:             "JobExecutionFailed",
-	//		Message:            fmt.Sprintf("Ping测试执行失败: %v", err),
-	//	})
-	//
-	//	// 更新状态
-	//	if updateErr := r.Status().Update(ctx, pingCopy); updateErr != nil {
-	//		logger.Error(updateErr, "Failed to update Ping status after job execution failure")
-	//	}
-	//
-	//	return ctrl.Result{RequeueAfter: time.Second * 30}, err
-	//}
+			// 获取 Job 执行结果
+			jobOutput, err := utils.GetJobResults(ctx, r.Client, ping.Namespace, jobName)
+			if err != nil {
+				logger.Error(err, "Failed to get job results")
+				pingCopy.Status.Status = "Failed"
+				pingCopy.Status.FailureCount++
+				pingCopy.Status.LastResult = fmt.Sprintf("Error getting job results: %v", err)
 
-	// 获取 Job 执行结果
-	jobOutput, err := utils.GetJobResults(ctx, r.Client, ping.Namespace, jobName)
-	if err != nil {
-		logger.Error(err, "Failed to get job results")
-		pingCopy.Status.Status = "Failed"
-		pingCopy.Status.FailureCount++
-		pingCopy.Status.LastResult = fmt.Sprintf("Error getting job results: %v", err)
-
-		// 设置TestReportName，即使失败也设置
-		if pingCopy.Status.TestReportName == "" {
-			pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
-		}
-
-		// 添加失败条件
-		utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
-			Type:               "Failed",
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: now,
-			Reason:             "ResultRetrievalFailed",
-			Message:            fmt.Sprintf("Ping测试获取结果失败: %v", err),
-		})
-	} else {
-		// 成功执行
-		pingCopy.Status.Status = "Succeeded"
-		pingCopy.Status.SuccessCount++
-		pingCopy.Status.LastResult = jobOutput
-
-		// 使用utils.ParsePingOutput解析输出并设置统计信息
-		pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
-
-		// 设置状态中的性能指标
-		pingCopy.Status.PacketLoss = pingOutput.PacketLoss
-		pingCopy.Status.MinRtt = pingOutput.MinRtt
-		pingCopy.Status.AvgRtt = pingOutput.AvgRtt
-		pingCopy.Status.MaxRtt = pingOutput.MaxRtt
-
-		// 添加成功条件
-		utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
-			Type:               "Completed",
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: now,
-			Reason:             "TestCompleted",
-			Message:            "Ping测试已成功完成",
-		})
-
-		// 设置TestReportName，以便TestReport控制器可以找到它
-		if pingCopy.Status.TestReportName == "" {
-			pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
-		}
-	}
-
-	// 更新状态
-	maxUpdateRetries := 5
-	updateRetryDelay := 200 * time.Millisecond
-
-	for i := 0; i < maxUpdateRetries; i++ {
-		// 如果不是首次尝试，重新获取对象和重新应用更改
-		if i > 0 {
-			// 重新获取最新的Ping对象
-			if err := r.Get(ctx, req.NamespacedName, &ping); err != nil {
-				logger.Error(err, "Failed to re-fetch Ping for status update retry", "attempt", i+1)
-				if errors.IsNotFound(err) {
-					return ctrl.Result{}, nil
-				}
-				return ctrl.Result{}, err
-			}
-
-			// 重新创建更新对象
-			pingCopy = ping.DeepCopy()
-			pingCopy.Status.LastExecutionTime = &now
-			pingCopy.Status.ExecutedCommand = fmt.Sprintf("ping %s", strings.Join(pingArgs, " "))
-
-			// 如果是首次执行（QueryCount为0），设置为1
-			if ping.Status.QueryCount == 0 {
-				pingCopy.Status.QueryCount = 1
-			}
-
-			// 重新应用所有状态更改
-			if jobOutput != "" {
-				// 解析 Ping 输出并更新状态
-				pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
-
-				// 更新状态信息
-				pingCopy.Status.Status = "Succeeded"
-				if ping.Spec.Schedule == "" {
-					pingCopy.Status.SuccessCount = 1
-				} else {
-					pingCopy.Status.SuccessCount++
-				}
-				pingCopy.Status.LastResult = jobOutput
-
-				// 明确设置所有重要字段，确保数据完整 - 即使值为0也要设置
-				pingCopy.Status.PacketLoss = pingOutput.PacketLoss
-				pingCopy.Status.MinRtt = pingOutput.MinRtt
-				pingCopy.Status.AvgRtt = pingOutput.AvgRtt
-				pingCopy.Status.MaxRtt = pingOutput.MaxRtt
-
-				// 设置TestReportName，使TestReport控制器能够自动创建报告
-				// 如果TestReportName为空，则设置为默认格式
+				// 设置TestReportName，即使失败也设置
 				if pingCopy.Status.TestReportName == "" {
 					pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
 				}
 
-				// 确保所有重要字段都有值，即使为0也要明确设置
 				if pingCopy.Status.QueryCount == 0 {
 					pingCopy.Status.QueryCount = 1
 				}
 
-				// 记录数据详情
-				logger.Info("重试时更新Ping状态数据",
-					"packetLoss", pingCopy.Status.PacketLoss,
-					"minRtt", pingCopy.Status.MinRtt,
-					"avgRtt", pingCopy.Status.AvgRtt,
-					"maxRtt", pingCopy.Status.MaxRtt)
+				// 添加失败条件
+				utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
+					Type:               "Failed",
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: now,
+					Reason:             "ResultRetrievalFailed",
+					Message:            fmt.Sprintf("Ping测试获取结果失败: %v", err),
+				})
+			} else {
+				// 成功执行
+				pingCopy.Status.Status = "Succeeded"
+				pingCopy.Status.SuccessCount++
+				pingCopy.Status.LastResult = jobOutput
 
-				// 标记测试已完成
+				if pingCopy.Status.QueryCount == 0 {
+					pingCopy.Status.QueryCount = 1
+				}
+
+				// 使用utils.ParsePingOutput解析输出并设置统计信息
+				pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
+
+				// 设置状态中的性能指标
+				pingCopy.Status.PacketLoss = fmt.Sprintf("%f", pingOutput.PacketLoss)
+				pingCopy.Status.MinRtt = fmt.Sprintf("%f", pingOutput.MinRtt)
+				pingCopy.Status.AvgRtt = fmt.Sprintf("%f", pingOutput.AvgRtt)
+				pingCopy.Status.MaxRtt = fmt.Sprintf("%f", pingOutput.MaxRtt)
+
+				// 添加成功条件
 				utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
 					Type:               "Completed",
 					Status:             metav1.ConditionTrue,
@@ -360,46 +253,90 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 					Reason:             "TestCompleted",
 					Message:            "Ping测试已成功完成",
 				})
-			} else {
-				// 错误状态更新
+
+				// 设置TestReportName，以便TestReport控制器可以找到它
+				if pingCopy.Status.TestReportName == "" {
+					pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
+				}
+			}
+
+			if updateErr := r.Status().Update(ctx, pingCopy); updateErr != nil {
+				logger.Info(updateErr.Error(), "failed to update ping status", "ping", ping.Name, "namespace", ping.Namespace)
+				return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+			}
+
+		} else if job.Status.Failed > *job.Spec.BackoffLimit {
+			logger.Error(nil, "Job failed", "ping", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+
+			// 获取 Job 执行结果
+			jobOutput, err := utils.GetJobResults(ctx, r.Client, ping.Namespace, jobName)
+			if err != nil {
+				logger.Error(err, "Failed to get job results")
 				pingCopy.Status.Status = "Failed"
-				pingCopy.Status.FailureCount = ping.Status.FailureCount + 1
+				pingCopy.Status.FailureCount++
+				pingCopy.Status.LastResult = fmt.Sprintf("Error getting job results: %v", err)
 
 				// 设置TestReportName，即使失败也设置
 				if pingCopy.Status.TestReportName == "" {
 					pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
 				}
 
-				// 标记失败状态
+				if pingCopy.Status.QueryCount == 0 {
+					pingCopy.Status.QueryCount = 1
+				}
+
+				// 添加失败条件
 				utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
 					Type:               "Failed",
 					Status:             metav1.ConditionTrue,
 					LastTransitionTime: now,
 					Reason:             "ResultRetrievalFailed",
-					Message:            "无法获取Ping测试结果",
+					Message:            fmt.Sprintf("Ping测试获取结果失败: %v", err),
 				})
-			}
+			} else {
+				// 成功执行
+				pingCopy.Status.Status = "Failed"
+				pingCopy.Status.FailureCount++
+				pingCopy.Status.LastResult = jobOutput
 
-			logger.Info("Retrying Ping status update", "attempt", i+1, "maxRetries", maxUpdateRetries)
-		}
+				if pingCopy.Status.QueryCount == 0 {
+					pingCopy.Status.QueryCount = 1
+				}
 
-		if updateErr := r.Status().Update(ctx, pingCopy); updateErr != nil {
-			if apierrors.IsConflict(updateErr) {
-				logger.Info("Conflict when updating Ping status, will retry",
-					"attempt", i+1,
-					"maxRetries", maxUpdateRetries)
-				if i < maxUpdateRetries-1 {
-					time.Sleep(updateRetryDelay)
-					updateRetryDelay *= 2 // 指数退避
-					continue
+				// 使用utils.ParsePingOutput解析输出并设置统计信息
+				pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
+
+				// 设置状态中的性能指标
+				pingCopy.Status.PacketLoss = fmt.Sprintf("%f", pingOutput.PacketLoss)
+				pingCopy.Status.MinRtt = fmt.Sprintf("%f", pingOutput.MinRtt)
+				pingCopy.Status.AvgRtt = fmt.Sprintf("%f", pingOutput.AvgRtt)
+				pingCopy.Status.MaxRtt = fmt.Sprintf("%f", pingOutput.MaxRtt)
+
+				// 添加成功条件
+				utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
+					Type:               "Failed",
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: now,
+					Reason:             "TestCompleted",
+					Message:            "Ping test complete failed",
+				})
+
+				// 设置TestReportName，以便TestReport控制器可以找到它
+				if pingCopy.Status.TestReportName == "" {
+					pingCopy.Status.TestReportName = utils.GenerateTestReportName("Ping", ping.Name)
 				}
 			}
-			logger.Error(updateErr, "Failed to update Ping status")
-			return ctrl.Result{RequeueAfter: time.Second * 5}, updateErr
+
+			if updateErr := r.Status().Update(ctx, pingCopy); updateErr != nil {
+				logger.Info(updateErr.Error(), "failed to update ping status", "ping", ping.Name, "namespace", ping.Namespace)
+				return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+			}
+
 		} else {
-			// 成功更新，退出循环
-			logger.Info("Successfully updated Ping status")
-			break
+			logger.Info("Job is still running", "ping", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"succeeded", job.Status.Succeeded, "failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+			return ctrl.Result{}, nil
 		}
 	}
 

@@ -4,42 +4,48 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.14.0
-  name: pings.testtools.xiaoming.com
+  name: iperves.testtools.xiaoming.com
 spec:
   group: testtools.xiaoming.com
   names:
-    kind: Ping
-    listKind: PingList
-    plural: pings
-    singular: ping
+    kind: Iperf
+    listKind: IperfList
+    plural: iperves
+    singular: iperf
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .status.status
+    - description: 测试状态
+      jsonPath: .status.status
       name: Status
+      type: string
+    - description: 目标主机
+      jsonPath: .spec.host
+      name: Host
+      type: string
+    - description: 目标端口
+      jsonPath: .spec.port
+      name: Port
+      type: integer
+    - description: 协议类型
+      jsonPath: .spec.protocol
+      name: Protocol
+      type: string
+    - description: 发送带宽(Mbps)
+      jsonPath: .status.stats.sendBandwidth
+      name: SendBW(Mbps)
+      type: string
+    - description: 接收带宽(Mbps)
+      jsonPath: .status.stats.receiveBandwidth
+      name: RecvBW(Mbps)
       type: string
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
-    - jsonPath: .status.queryCount
-      name: QueryCount
-      type: integer
-    - jsonPath: .status.successCount
-      name: Succeeded
-      type: integer
-    - jsonPath: .status.failureCount
-      name: Failed
-      type: integer
-    - jsonPath: .status.lastExecutionTime
-      name: LastRun
-      type: date
-    - jsonPath: .status.testReportName
-      name: TestReport
-      type: string
     name: v1
     schema:
       openAPIV3Schema:
-        description: Ping is the Schema for the pings API
+        description: Iperf 是网络性能测试资源的定义
         properties:
           apiVersion:
             description: |-
@@ -59,49 +65,42 @@ spec:
           metadata:
             type: object
           spec:
-            description: PingSpec defines the desired state of Ping
+            description: IperfSpec 定义了Iperf资源的期望状态
             properties:
-              concurrency:
-                default: 1
-                description: Concurrency is the number of concurrent pings to run
-                format: int32
-                maximum: 10
+              bandwidth:
+                description: 测试带宽限制（bits/sec）
+                format: int64
                 minimum: 1
                 type: integer
-              count:
-                default: 4
-                description: Count is the number of ping requests to send
-                format: int32
-                maximum: 100
-                minimum: 1
-                type: integer
-              doNotFragment:
-                description: DoNotFragment sets the "don't fragment" bit in the IP
-                  header
+              bidirectional:
+                default: false
+                description: 是否启用双向模式测试（同时进行发送和接收）
                 type: boolean
+              duration:
+                default: 10
+                description: 测试时长（秒），默认为10秒
+                format: int32
+                maximum: 3600
+                minimum: 1
+                type: integer
               host:
-                description: Host is the host to ping
+                description: 目标主机，必填
                 type: string
               image:
-                default: 172.30.1.13:18093/testtools-ping:v1
-                description: Image specifies the container image used to run the Ping
+                default: 172.30.1.13:18093/testtools-iperf:v1
+                description: Image specifies the container image used to run the Dig
                   test
                 type: string
-              interval:
-                default: 1
-                description: Interval is the interval between ping requests in seconds
-                format: int32
-                maximum: 60
-                minimum: 1
-                type: integer
-              maxRetries:
-                default: 3
-                description: MaxRetries is the maximum number of retries for failed
-                  pings
-                format: int32
-                maximum: 10
-                minimum: 1
-                type: integer
+              jsonOutput:
+                default: true
+                description: 是否开启JSON输出
+                type: boolean
+              mode:
+                description: 测试模式，client或server，默认为client
+                enum:
+                - client
+                - server
+                type: string
               nodeName:
                 description: NodeName indicates in which node this pod is scheduled.
                 type: string
@@ -112,47 +111,72 @@ spec:
                   pod to fit on a node.
                 type: object
                 x-kubernetes-map-type: atomic
-              packetSize:
-                default: 56
-                description: PacketSize is the size of the ICMP packet to send
+              parallel:
+                default: 1
+                description: 并发流数量，默认为1
                 format: int32
-                maximum: 65507
-                minimum: 8
+                maximum: 100
+                minimum: 1
                 type: integer
-              schedule:
-                description: Schedule is the cron schedule for running the ping command
-                type: string
-              timeout:
-                default: 5
-                description: Timeout is the timeout for each ping request in seconds
+              port:
+                default: 5201
+                description: 目标端口，默认为5201
                 format: int32
+                maximum: 65535
+                minimum: 1
+                type: integer
+              protocol:
+                default: tcp
+                description: 测试协议，tcp或udp，默认为tcp
+                enum:
+                - tcp
+                - udp
+                type: string
+              receiveBuffer:
+                description: 接收缓冲区大小（字节）
+                format: int32
+                maximum: 104857600
+                minimum: 1
+                type: integer
+              reportInterval:
+                default: 1
+                description: 报告间隔时间（秒）
+                format: int64
                 maximum: 60
                 minimum: 1
                 type: integer
-              ttl:
-                description: TTL is the IP Time to Live
+              reverse:
+                default: false
+                description: 是否启用反向模式测试（服务器向客户端传输）
+                type: boolean
+              schedule:
+                description: 测试间隔（秒），若设置则定时执行
+                pattern: ^[0-9]+$
+                type: string
+              sendBuffer:
+                description: 发送缓冲区大小（字节）
                 format: int32
-                maximum: 255
+                maximum: 104857600
                 minimum: 1
                 type: integer
               useIPv4Only:
-                description: UseIPv4Only forces IPv4 usage
+                default: false
+                description: 是否开启IPv4模式
                 type: boolean
               useIPv6Only:
-                description: UseIPv6Only forces IPv6 usage
+                default: false
+                description: 是否开启IPv6模式
                 type: boolean
-            required:
-            - host
+              verbose:
+                default: false
+                description: 是否开启详细日志输出
+                type: boolean
             type: object
           status:
-            description: PingStatus defines the observed state of Ping
+            description: IperfStatus 定义了Iperf资源的观测状态
             properties:
-              avgRtt:
-                description: AvgRtt is the average round trip time in milliseconds
-                type: string
               conditions:
-                description: Conditions represents the latest available observations
-                  of the ping's current state
+                description: 状态条件
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -221,47 +245,82 @@ spec:
                   - type
                   type: object
                 type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
               executedCommand:
-                description: ExecutedCommand is the command that was executed for
-                  debug purposes
+                description: 执行的命令
                 type: string
               failureCount:
-                description: FailureCount is the number of failed pings
-                format: int64
+                description: 失败次数
+                format: int32
                 type: integer
+              jobName:
+                description: 测试的Job名称
+                type: string
               lastExecutionTime:
-                description: LastExecutionTime is the time of the last execution
+                description: 最后执行时间
                 format: date-time
                 type: string
               lastResult:
-                description: LastResult is the result of the last ping operation
-                type: string
-              maxRtt:
-                description: MaxRtt is the maximum round trip time in milliseconds
-                type: string
-              minRtt:
-                description: MinRtt is the minimum round trip time in milliseconds
-                type: string
-              packetLoss:
-                description: PacketLoss is the percentage of packet loss
+                description: 最后测试结果
                 type: string
               queryCount:
-                description: QueryCount is the number of pings executed
-                format: int64
+                description: 查询次数
+                format: int32
                 type: integer
+              stats:
+                description: 性能统计信息
+                properties:
+                  cpuUtilization:
+                    description: CPU利用率（百分比）
+                    type: string
+                  endTime:
+                    description: 测试结束时间
+                    format: date-time
+                    type: string
+                  jitter:
+                    description: 平均抖动（毫秒）
+                    type: string
+                  lostPackets:
+                    description: 丢包数
+                    format: int32
+                    type: integer
+                  lostPercent:
+                    description: 丢包率（百分比）
+                    type: string
+                  receiveBandwidth:
+                    description: 接收平均带宽（bits/sec）
+                    type: string
+                  receivedBytes:
+                    description: 总接收数据量（字节）
+                    format: int64
+                    type: integer
+                  retransmits:
+                    description: 重传计数
+                    format: int32
+                    type: integer
+                  rttMs:
+                    description: 往返延迟（毫秒）
+                    type: string
+                  sendBandwidth:
+                    description: 发送平均带宽（bits/sec）
+                    type: string
+                  sentBytes:
+                    description: 总发送数据量（字节）
+                    format: int64
+                    type: integer
+                  startTime:
+                    description: 测试开始时间
+                    format: date-time
+                    type: string
+                type: object
               status:
-                description: Status is the status of the last ping operation
+                description: 测试状态：Running, Succeeded, Failed
                 type: string
               successCount:
-                description: SuccessCount is the number of successful pings
-                format: int64
+                description: 成功次数
+                format: int32
                 type: integer
               testReportName:
-                description: TestReportName is the name of the associated TestReport
-                  resource
+                description: 关联的测试报告名称
                 type: string
             type: object
         type: object

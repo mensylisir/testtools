@@ -35,7 +35,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/xiaoming/testtools/pkg/utils"
-	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/tools/record"
 )
@@ -204,135 +203,31 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 	} else {
 		if job.Status.Succeeded > 0 {
 			logger.Info("Job completed successfully", "dig", req.Name, "jobName", jobName, "namespace", req.Namespace)
-		} else if job.Status.Failed > *job.Spec.BackoffLimit {
-			logger.Error(nil, "Job failed", "dig", req.Name, "jobName", jobName, "namespace", req.Namespace,
-				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
-		} else {
-			logger.Info("Job is still running", "dig", req.Name, "jobName", jobName, "namespace", req.Namespace,
-				"succeeded", job.Status.Succeeded, "failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
-			return ctrl.Result{RequeueAfter: time.Second * 30}, nil
-		}
-	}
+			jobOutput, err := utils.GetJobResults(ctx, r.Client, dig.Namespace, jobName)
+			if err != nil {
+				logger.Error(err, "Failed to get Dig job results")
+				digCopy.Status.Status = "Failed"
+				digCopy.Status.FailureCount++
+				digCopy.Status.LastResult = fmt.Sprintf("Error getting Dig job results: %v", err)
 
-	// 等待 Job 完成
-	//logger.Info("Waiting for Dig job to complete", "jobName", jobName)
-	//err = utils.WaitForJob(ctx, r.Client, dig.Namespace, jobName, 5*time.Minute)
-	//if err != nil {
-	//	logger.Error(err, "Failed while waiting for Dig job to complete")
-	//	digCopy.Status.Status = "Failed"
-	//	digCopy.Status.FailureCount++
-	//	digCopy.Status.LastResult = fmt.Sprintf("Error waiting for Dig job: %v", err)
-	//
-	//	// 添加失败条件
-	//	utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
-	//		Type:               "Failed",
-	//		Status:             metav1.ConditionTrue,
-	//		LastTransitionTime: now,
-	//		Reason:             "JobExecutionFailed",
-	//		Message:            fmt.Sprintf("Dig测试执行失败: %v", err),
-	//	})
-	//
-	//	// 更新状态
-	//	if updateErr := r.Status().Update(ctx, digCopy); updateErr != nil {
-	//		logger.Error(updateErr, "Failed to update Dig status after job execution failure")
-	//	}
-	//
-	//	return ctrl.Result{RequeueAfter: time.Second * 30}, err
-	//}
-
-	// 获取 Job 执行结果
-	jobOutput, err := utils.GetJobResults(ctx, r.Client, dig.Namespace, jobName)
-	if err != nil {
-		logger.Error(err, "Failed to get Dig job results")
-		digCopy.Status.Status = "Failed"
-		digCopy.Status.FailureCount++
-		digCopy.Status.LastResult = fmt.Sprintf("Error getting Dig job results: %v", err)
-
-		// 设置TestReportName，即使失败也设置
-		if digCopy.Status.TestReportName == "" {
-			digCopy.Status.TestReportName = utils.GenerateTestReportName("Dig", dig.Name)
-		}
-
-		// 添加失败条件
-		utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
-			Type:               "Failed",
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: now,
-			Reason:             "ResultRetrievalFailed",
-			Message:            fmt.Sprintf("无法获取Dig测试结果: %v", err),
-		})
-	} else {
-		// 解析 Dig 输出并更新状态
-		digOutput := utils.ParseDigOutput(jobOutput)
-
-		// 更新状态信息
-		digCopy.Status.Status = "Succeeded"
-		// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
-		if dig.Spec.Schedule == "" {
-			digCopy.Status.SuccessCount = 1
-		} else {
-			digCopy.Status.SuccessCount++
-		}
-		digCopy.Status.LastResult = jobOutput
-		digCopy.Status.AverageResponseTime = digOutput.QueryTime
-
-		// 设置TestReportName，使TestReport控制器能够自动创建报告
-		// 如果TestReportName为空，则设置为默认格式
-		if digCopy.Status.TestReportName == "" {
-			digCopy.Status.TestReportName = utils.GenerateTestReportName("Dig", dig.Name)
-		}
-
-		// 确保所有重要字段都被设置
-		if digCopy.Status.QueryCount == 0 {
-			digCopy.Status.QueryCount = 1
-		}
-
-		// 记录详细数据
-		logger.Info("Dig测试成功完成",
-			"domain", dig.Spec.Domain,
-			"server", digOutput.Server,
-			"status", digOutput.Status,
-			"queryTime", digOutput.QueryTime,
-			"ipAddressCount", len(digOutput.IpAddresses))
-
-		// 标记测试已完成
-		utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
-			Type:               "Completed",
-			Status:             metav1.ConditionTrue,
-			LastTransitionTime: now,
-			Reason:             "TestCompleted",
-			Message:            "Dig测试已成功完成",
-		})
-	}
-
-	// 更新状态
-	maxUpdateRetries := 5
-	updateRetryDelay := 200 * time.Millisecond
-
-	for i := 0; i < maxUpdateRetries; i++ {
-		// 如果不是首次尝试，重新获取对象和重新应用更改
-		if i > 0 {
-			// 重新获取最新的Dig对象
-			if err := r.Get(ctx, req.NamespacedName, &dig); err != nil {
-				logger.Error(err, "Failed to re-fetch Dig for status update retry", "attempt", i+1)
-				if errors.IsNotFound(err) {
-					return ctrl.Result{}, nil
+				// 设置TestReportName，即使失败也设置
+				if digCopy.Status.TestReportName == "" {
+					digCopy.Status.TestReportName = utils.GenerateTestReportName("Dig", dig.Name)
 				}
-				return ctrl.Result{}, err
-			}
 
-			// 重新创建更新对象
-			digCopy = dig.DeepCopy()
-			digCopy.Status.LastExecutionTime = &now
-			digCopy.Status.ExecutedCommand = fmt.Sprintf("dig %s", strings.Join(digArgs, " "))
-
-			// 如果是首次执行（QueryCount为0），设置为1
-			if dig.Status.QueryCount == 0 {
-				digCopy.Status.QueryCount = 1
-			}
-
-			// 重新应用所有状态更改
-			if jobOutput != "" {
+				// 确保所有重要字段都被设置
+				if digCopy.Status.QueryCount == 0 {
+					digCopy.Status.QueryCount = 1
+				}
+				// 添加失败条件
+				utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
+					Type:               "Failed",
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: now,
+					Reason:             "ResultRetrievalFailed",
+					Message:            fmt.Sprintf("无法获取Dig测试结果: %v", err),
+				})
+			} else {
 				// 解析 Dig 输出并更新状态
 				digOutput := utils.ParseDigOutput(jobOutput)
 
@@ -342,10 +237,10 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				if dig.Spec.Schedule == "" {
 					digCopy.Status.SuccessCount = 1
 				} else {
-					digCopy.Status.SuccessCount = dig.Status.SuccessCount + 1
+					digCopy.Status.SuccessCount++
 				}
 				digCopy.Status.LastResult = jobOutput
-				digCopy.Status.AverageResponseTime = digOutput.QueryTime
+				digCopy.Status.AverageResponseTime = fmt.Sprintf("%f", digOutput.QueryTime)
 
 				// 设置TestReportName，使TestReport控制器能够自动创建报告
 				// 如果TestReportName为空，则设置为默认格式
@@ -374,46 +269,90 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 					Reason:             "TestCompleted",
 					Message:            "Dig测试已成功完成",
 				})
-			} else {
-				// 错误状态更新
+			}
+			if updateErr := r.Status().Update(ctx, digCopy); updateErr != nil {
+				logger.Info(updateErr.Error(), "failed to update Dig status", "dig", dig.Name, "namespace", dig.Namespace)
+				return ctrl.Result{RequeueAfter: time.Second * 30}, nil
+			}
+		} else if job.Status.Failed > *job.Spec.BackoffLimit {
+			logger.Error(nil, "Job failed", "dig", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+			jobOutput, err := utils.GetJobResults(ctx, r.Client, dig.Namespace, jobName)
+			if err != nil {
+				logger.Error(err, "Failed to get Dig job results")
 				digCopy.Status.Status = "Failed"
-				digCopy.Status.FailureCount = dig.Status.FailureCount + 1
+				digCopy.Status.FailureCount++
+				digCopy.Status.LastResult = fmt.Sprintf("Error getting Dig job results: %v", err)
 
 				// 设置TestReportName，即使失败也设置
 				if digCopy.Status.TestReportName == "" {
 					digCopy.Status.TestReportName = utils.GenerateTestReportName("Dig", dig.Name)
 				}
 
-				// 标记失败状态
+				// 确保所有重要字段都被设置
+				if digCopy.Status.QueryCount == 0 {
+					digCopy.Status.QueryCount = 1
+				}
+				// 添加失败条件
 				utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
 					Type:               "Failed",
 					Status:             metav1.ConditionTrue,
 					LastTransitionTime: now,
 					Reason:             "ResultRetrievalFailed",
-					Message:            "无法获取Dig测试结果",
+					Message:            fmt.Sprintf("无法获取Dig测试结果: %v", err),
+				})
+			} else {
+				// 解析 Dig 输出并更新状态
+				digOutput := utils.ParseDigOutput(jobOutput)
+
+				// 更新状态信息
+				digCopy.Status.Status = "Failed"
+				// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
+				if dig.Spec.Schedule == "" {
+					digCopy.Status.FailureCount = 1
+				} else {
+					digCopy.Status.FailureCount++
+				}
+				digCopy.Status.LastResult = jobOutput
+				digCopy.Status.AverageResponseTime = fmt.Sprintf("%f", digOutput.QueryTime)
+
+				// 设置TestReportName，使TestReport控制器能够自动创建报告
+				// 如果TestReportName为空，则设置为默认格式
+				if digCopy.Status.TestReportName == "" {
+					digCopy.Status.TestReportName = utils.GenerateTestReportName("Dig", dig.Name)
+				}
+
+				// 确保所有重要字段都被设置
+				if digCopy.Status.QueryCount == 0 {
+					digCopy.Status.QueryCount = 1
+				}
+
+				// 记录详细数据
+				logger.Info("Dig test completed failed",
+					"domain", dig.Spec.Domain,
+					"server", digOutput.Server,
+					"status", digOutput.Status,
+					"queryTime", digOutput.QueryTime,
+					"ipAddressCount", len(digOutput.IpAddresses))
+
+				// 标记测试已完成
+				utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
+					Type:               "Failed",
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: now,
+					Reason:             "TestCompleted",
+					Message:            "Dig test completed failed",
 				})
 			}
-
-			logger.Info("Retrying Dig status update", "attempt", i+1, "maxRetries", maxUpdateRetries)
-		}
-
-		if updateErr := r.Status().Update(ctx, digCopy); updateErr != nil {
-			if apierrors.IsConflict(updateErr) {
-				logger.Info("Conflict when updating Dig status, will retry",
-					"attempt", i+1,
-					"maxRetries", maxUpdateRetries)
-				if i < maxUpdateRetries-1 {
-					time.Sleep(updateRetryDelay)
-					updateRetryDelay *= 2 // 指数退避
-					continue
-				}
+			if updateErr := r.Status().Update(ctx, digCopy); updateErr != nil {
+				logger.Info(updateErr.Error(), "failed to update Dig status", "dig", dig.Name, "namespace", dig.Namespace)
+				return ctrl.Result{RequeueAfter: time.Second * 30}, nil
 			}
-			logger.Error(updateErr, "Failed to update Dig status")
-			return ctrl.Result{RequeueAfter: time.Second * 5}, updateErr
+
 		} else {
-			// 成功更新，退出循环
-			logger.Info("Successfully updated Dig status")
-			break
+			logger.Info("Job is still running", "dig", req.Name, "jobName", jobName, "namespace", req.Namespace,
+				"succeeded", job.Status.Succeeded, "failed", job.Status.Failed, "backoffLimit", *job.Spec.BackoffLimit)
+			return ctrl.Result{}, nil
 		}
 	}
 

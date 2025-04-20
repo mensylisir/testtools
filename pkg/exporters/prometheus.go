@@ -50,7 +50,8 @@ func (e *PrometheusExporter) ExportResults(ctx context.Context, testReport *test
 			Help:        "测试响应时间(毫秒)",
 			ConstLabels: labels,
 		})
-		responseTimeGauge.Set(result.ResponseTime)
+		responseTime, _ := strconv.ParseFloat(result.ResponseTime, 64)
+		responseTimeGauge.Set(responseTime)
 		pusher.Collector(responseTimeGauge)
 
 		// 导出所有指标
@@ -115,7 +116,8 @@ func (e *PrometheusExporter) ExportResults(ctx context.Context, testReport *test
 		Help:        "平均响应时间(毫秒)",
 		ConstLabels: summaryLabels,
 	})
-	avgRespTimeGauge.Set(testReport.Status.Summary.AverageResponseTime)
+	averageResponseTime, _ := strconv.ParseFloat(testReport.Status.Summary.AverageResponseTime, 64)
+	avgRespTimeGauge.Set(averageResponseTime)
 	pusher.Collector(avgRespTimeGauge)
 
 	logger.Info("完成导出测试结果到Prometheus")

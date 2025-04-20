@@ -34,12 +34,12 @@ func TestFioControllerInteraction(t *testing.T) {
 			LastExecutionTime: &metav1.Time{Time: time.Now()},
 			Status:            "Succeeded",
 			Stats: testtoolsv1.FioStats{
-				ReadIOPS:     1000,
-				WriteIOPS:    500,
-				ReadBW:       4096,
-				WriteBW:      2048,
-				ReadLatency:  10,
-				WriteLatency: 15,
+				ReadIOPS:     "1000",
+				WriteIOPS:    "500",
+				ReadBW:       "4096",
+				WriteBW:      "2048",
+				ReadLatency:  "10",
+				WriteLatency: "15",
 			},
 		},
 	}
@@ -75,7 +75,7 @@ func TestFioControllerInteraction(t *testing.T) {
 	}
 
 	// 执行测试
-	requests := r.findReportsForFio(context.Background(), fio)
+	requests := r.findTestReportForResource(context.Background(), fio)
 
 	// 验证
 	assert.Equal(t, 1, len(requests))
@@ -135,7 +135,7 @@ func TestDigControllerInteraction(t *testing.T) {
 	}
 
 	// 执行测试
-	requests := r.findReportsForDig(context.Background(), dig)
+	requests := r.findTestReportForResource(context.Background(), dig)
 
 	// 验证
 	assert.Equal(t, 1, len(requests))
@@ -195,7 +195,7 @@ func TestPingControllerInteraction(t *testing.T) {
 	}
 
 	// 执行测试
-	requests := r.findReportsForPing(context.Background(), ping)
+	requests := r.findTestReportForResource(context.Background(), ping)
 
 	// 验证
 	assert.Equal(t, 1, len(requests))
@@ -241,12 +241,12 @@ func TestTestReportReconciler_Reconcile(t *testing.T) {
 			LastExecutionTime: &metav1.Time{Time: time.Now()},
 			Status:            "Succeeded",
 			Stats: testtoolsv1.FioStats{
-				ReadIOPS:     1000,
-				WriteIOPS:    500,
-				ReadBW:       4096,
-				WriteBW:      2048,
-				ReadLatency:  10,
-				WriteLatency: 15,
+				ReadIOPS:     "1000",
+				WriteIOPS:    "500",
+				ReadBW:       "4096",
+				WriteBW:      "2048",
+				ReadLatency:  "10",
+				WriteLatency: "15",
 			},
 		},
 	}

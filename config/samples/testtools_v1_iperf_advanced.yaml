@@ -1,0 +1,28 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Iperf
+metadata:
+  name: iperf-sample-advanced
+  labels:
+    app: network-tools
+    type: bandwidth-test
+spec:
+  server: "iperf.example.com"
+  port: 5201
+  duration: 30
+  protocol: "tcp"
+  parallelStreams: 5
+  windowSize: "256K"
+  format: "Mbits"
+  interval: 1
+  bindAddress: "0.0.0.0"
+  reportStyle: "C"
+  bidirectional: true
+  zerocopy: true
+  bandwidth: "100M"
+  schedule: "1800"
+  maxRetries: 2
+  image: "192.168.31.34:18093/testtools-iperf:v3"
+  nodeSelector:
+    kubernetes.io/os: linux
+    network-speed: "10G"
+  nodeName: "performance-node01" 

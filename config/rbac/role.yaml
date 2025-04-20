@@ -1,26 +1,9 @@
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: manager-role
 rules:
-- apiGroups:
-  - ""
-  resources:
-  - pods
-  - pods/log
-  - jobs
-  - services
-  - events
-  - configmaps
-  - secrets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - batch
   resources:
@@ -34,20 +17,23 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/log
+  verbs:
+  - get
+- apiGroups:
   - testtools.xiaoming.com
   resources:
   - digs
-  - digs/status
-  - digs/finalizers
-  - fios
-  - fios/status
-  - fios/finalizers
-  - pings
-  - pings/status
-  - pings/finalizers
-  - testreports
-  - testreports/status
-  - testreports/finalizers
   verbs:
   - create
   - delete
@@ -55,4 +41,200 @@ rules:
   - list
   - patch
   - update
-  - watch 
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - digs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - digs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - fios
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - fios/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - fios/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - iperves
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - iperves/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - iperves/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - ncs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - ncs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - ncs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - pings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - pings/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - pings/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - skoops
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - skoops/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - skoops/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - tcppings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - tcppings/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - tcppings/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - testreports
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - testreports/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - testtools.xiaoming.com
+  resources:
+  - testreports/status
+  verbs:
+  - get
+  - patch
+  - update

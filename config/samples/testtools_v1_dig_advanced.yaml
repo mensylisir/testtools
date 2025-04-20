@@ -30,9 +30,6 @@ spec:
   # 仅使用IPv4协议栈
   useIPv4Only: true
   
-  # 设置更频繁的检查
-  schedule: "30"
-  
   # 增加失败重试次数
   maxRetries: 5
   
@@ -43,4 +40,4 @@ spec:
   useMicroseconds: true
   
   # 指定镜像
-  image: "registry.dev.rdev.tech:18093/testtools-dig:v1" 
+  image: "192.168.31.34:18093/testtools-dig:v3"

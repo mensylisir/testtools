@@ -111,6 +111,38 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "Fio")
 		os.Exit(1)
 	}
+
+	if err = (&controllers.NcReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Nc")
+		os.Exit(1)
+	}
+
+	if err = (&controllers.TcpPingReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "TcpPing")
+		os.Exit(1)
+	}
+
+	if err = (&controllers.IperfReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Iperf")
+		os.Exit(1)
+	}
+
+	if err = (&controllers.SkoopReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "Skoop")
+		os.Exit(1)
+	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
