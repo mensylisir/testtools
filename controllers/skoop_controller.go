@@ -204,7 +204,7 @@ func (r *SkoopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 						Reason:             "ResultRetrievalFailed",
 						Message:            fmt.Sprintf("Error to parse skoop output: %v", err),
 					})
-				} else {
+				} else if skoopOutput.Status == "SUCCESS" {
 					skoopCopy.Status.Status = "Succeeded"
 					if skoopCopy.Spec.Schedule == "" {
 						skoopCopy.Status.SuccessCount = 1
@@ -231,6 +231,34 @@ func (r *SkoopReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 						LastTransitionTime: now,
 						Reason:             "TestCompleted",
 						Message:            fmt.Sprintf("Skoop test completed successfully"),
+					})
+				} else {
+					skoopCopy.Status.Status = "Failed"
+					if skoopCopy.Spec.Schedule == "" {
+						skoopCopy.Status.FailureCount = 1
+					} else {
+						skoopCopy.Status.FailureCount++
+					}
+					skoopCopy.Status.LastResult = jobOutput
+
+					if skoopCopy.Status.TestReportName == "" {
+						skoopCopy.Status.TestReportName = utils.GenerateTestReportName("Skoop", skoop.Name)
+					}
+
+					if skoopCopy.Status.QueryCount == 0 {
+						skoopCopy.Status.QueryCount = 1
+					}
+
+					logger.Info("Skoop test failed",
+						"host", skoopOutput.DestinationAddress,
+						"port", skoopOutput.DestinationPort)
+
+					utils.SetCondition(&skoopCopy.Status.Conditions, metav1.Condition{
+						Type:               "Failed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            fmt.Sprintf("Skoop test completed failed"),
 					})
 				}
 			}

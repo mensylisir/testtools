@@ -116,7 +116,7 @@ type DigSpec struct {
 
 	// Image specifies the container image used to run the Dig test
 	// +optional
-	// +kubebuilder:default="172.30.1.13:18093/testtools-dig:v1"
+	// +kubebuilder:default="registry.dev.rdev.tech:18093/testtools-dig:v3"
 	Image string `json:"image,omitempty"`
 
 	// NodeSelector is a selector which must be true for the pod to fit on a node.

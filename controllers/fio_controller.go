@@ -207,7 +207,7 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 					Message:            fmt.Sprintf("Error getting Fio job results: %v", err),
 				})
 			} else {
-				fioOutput, err := utils.ParseFioOutput(jobOutput)
+				fioStat, fioOutput, err := utils.ParseFioOutput(jobOutput)
 				if err != nil {
 					logger.Error(err, "Failed to parse Fio job results")
 					fioCopy.Status.Status = "Failed"
@@ -225,7 +225,7 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 						Reason:             "ResultParsingFailed",
 						Message:            fmt.Sprintf("Error parsing Fio job results: %v", err),
 					})
-				} else {
+				} else if fioOutput.Status == "SUCCESS" {
 					fioCopy.Status.Status = "Succeeded"
 					if fioCopy.Spec.Schedule == "" {
 						fioCopy.Status.SuccessCount = 1
@@ -233,7 +233,7 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 						fioCopy.Status.SuccessCount++
 					}
 					fioCopy.Status.LastResult = jobOutput
-					fioCopy.Status.Stats = fioOutput
+					fioCopy.Status.Stats = fioStat
 
 					logger.Info("Fio test successfully", "result", jobOutput)
 					utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
@@ -242,6 +242,24 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 						LastTransitionTime: now,
 						Reason:             "TestCompleted",
 						Message:            "Fio测试已成功完成",
+					})
+				} else {
+					fioCopy.Status.Status = "Failed"
+					if fioCopy.Spec.Schedule == "" {
+						fioCopy.Status.FailureCount = 1
+					} else {
+						fioCopy.Status.FailureCount++
+					}
+					fioCopy.Status.LastResult = jobOutput
+					fioCopy.Status.Stats = fioStat
+
+					logger.Info("Fio test complete failed", "result", jobOutput)
+					utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{
+						Type:               "Completed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            "Fio test complete failed",
 					})
 				}
 
@@ -278,7 +296,7 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 					Message:            fmt.Sprintf("Error getting Fio job results: %v", err),
 				})
 			} else {
-				fioOutput, err := utils.ParseFioOutput(jobOutput)
+				fioStats, _, err := utils.ParseFioOutput(jobOutput)
 				if err != nil {
 					logger.Error(err, "Failed to parse Fio job results")
 					fioCopy.Status.Status = "Failed"
@@ -304,7 +322,7 @@ func (r *FioReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 						fioCopy.Status.FailureCount++
 					}
 					fioCopy.Status.LastResult = jobOutput
-					fioCopy.Status.Stats = fioOutput
+					fioCopy.Status.Stats = fioStats
 
 					logger.Info("Fio test failed", "result", jobOutput)
 					utils.SetCondition(&fioCopy.Status.Conditions, metav1.Condition{

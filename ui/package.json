@@ -1,0 +1,31 @@
+{
+  "name": "testtools-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "proxy": "node src/proxy/proxy.js",
+    "proxy:dev": "nodemon src/proxy/proxy.js",
+    "test:proxy": "node src/proxy/test-proxy.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.5",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "vue": "^3.3.11",
+    "vue-router": "^4.2.5",
+    "vuex": "^4.1.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.5.2",
+    "nodemon": "^3.0.2",
+    "vite": "^5.0.10"
+  }
+}

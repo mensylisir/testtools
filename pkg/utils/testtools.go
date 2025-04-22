@@ -53,6 +53,7 @@ type FioOutput struct {
 			} `json:"lat_ns"`
 		} `json:"write"`
 	} `json:"jobs"`
+	Status string `json:"status"` // 测试状态 (如 "SUCCESS", "FAILED")
 }
 
 // DigOutput 表示 dig 命令输出的结构化表示
@@ -84,6 +85,7 @@ type PingOutput struct {
 	MaxRtt          float64   `json:"maxRtt"`          // 最大往返时间 (ms)
 	StdDevRtt       float64   `json:"stdDevRtt"`       // 往返时间标准差 (ms)
 	SuccessfulPings []float64 `json:"successfulPings"` // 所有成功的ping往返时间
+	Status          string    `json:"status"`          // 测试状态 (如 "SUCCESS", "FAILED")
 }
 
 // NCOutput 表示 nc 命令输出的结构化表示
@@ -95,6 +97,7 @@ type NCOutput struct {
 	ConnectionLatency float64 `json:"connectionLatency"` // 连接延迟 (ms)
 	ErrorMessage      string  `json:"errorMessage"`      // 错误信息（如果有）
 	ExtraInfo         string  `json:"extraInfo"`         // 额外信息（如服务器banner等）
+	Status            string  `json:"status"`            // 测试状态 (如 "SUCCESS", "FAILED")
 }
 
 // TcpPingOutput 表示 TCP Ping 输出的结构化表示
@@ -109,6 +112,7 @@ type TcpPingOutput struct {
 	MaxLatency    float64   `json:"maxLatency"`    // 最大延迟 (ms)
 	StdDevLatency float64   `json:"stdDevLatency"` // 延迟标准差 (ms)
 	RttValues     []float64 `json:"rttValues"`     // 所有RTT值列表
+	Status        string    `json:"status"`        // 测试状态 (如 "SUCCESS", "FAILED")
 }
 
 // IperfOutput 表示 iperf 命令输出的结构化表示
@@ -128,6 +132,7 @@ type IperfOutput struct {
 	RttMs            float64               `json:"rttMs"`            // 往返时间 (ms)
 	CpuUtilization   float64               `json:"cpuUtilization"`   // CPU利用率 (%)
 	IntervalReports  []IperfIntervalReport `json:"intervalReports"`  // 间隔报告
+	Status           string                `json:"status"`           // 测试状态 (如 "SUCCESS", "FAILED")
 }
 
 // IperfIntervalReport 表示 iperf 间隔报告
@@ -321,7 +326,7 @@ func BuildFioArgs(fio *testtoolsv1.Fio) []string {
 }
 
 // ParseFioOutput 解析FIO输出并提取性能指标
-func ParseFioOutput(outputStr string) (testtoolsv1.FioStats, error) {
+func ParseFioOutput(outputStr string) (testtoolsv1.FioStats, *FioOutput, error) {
 	stats := testtoolsv1.FioStats{
 		LatencyPercentiles: make(map[string]string),
 	}
@@ -329,24 +334,24 @@ func ParseFioOutput(outputStr string) (testtoolsv1.FioStats, error) {
 	// 记录原始输出长度，便于调试
 	outputLength := len(outputStr)
 	if outputLength == 0 {
-		return stats, fmt.Errorf("FIO输出为空")
+		return stats, nil, fmt.Errorf("FIO输出为空")
 	}
 
 	// 尝试定位JSON部分
 	// 找到第一个左大括号
 	jsonStart := strings.Index(outputStr, "{")
 	if jsonStart < 0 {
-		return stats, fmt.Errorf("FIO输出中未找到JSON开始标记 '{': %s", truncateString(outputStr, 200))
+		return stats, nil, fmt.Errorf("FIO输出中未找到JSON开始标记 '{': %s", truncateString(outputStr, 200))
 	}
 
 	// 找到最后一个右大括号
 	jsonEnd := strings.LastIndex(outputStr, "}")
 	if jsonEnd < 0 {
-		return stats, fmt.Errorf("FIO输出中未找到JSON结束标记 '}': %s", truncateString(outputStr, 200))
+		return stats, nil, fmt.Errorf("FIO输出中未找到JSON结束标记 '}': %s", truncateString(outputStr, 200))
 	}
 
 	if jsonEnd <= jsonStart {
-		return stats, fmt.Errorf("FIO输出中JSON格式无效，结束标记位于开始标记之前: %s", truncateString(outputStr, 200))
+		return stats, nil, fmt.Errorf("FIO输出中JSON格式无效，结束标记位于开始标记之前: %s", truncateString(outputStr, 200))
 	}
 
 	// 提取可能的JSON部分
@@ -361,13 +366,13 @@ func ParseFioOutput(outputStr string) (testtoolsv1.FioStats, error) {
 		// 再次尝试解析
 		err = json.Unmarshal([]byte(cleanJsonStr), &fioOutput)
 		if err != nil {
-			return stats, fmt.Errorf("无法解析FIO输出: %v, 提取的JSON字符串: %s", err, truncateString(jsonStr, 200))
+			return stats, nil, fmt.Errorf("无法解析FIO输出: %v, 提取的JSON字符串: %s", err, truncateString(jsonStr, 200))
 		}
 	}
 
 	// 提取性能指标
 	if len(fioOutput.Jobs) == 0 {
-		return stats, fmt.Errorf("FIO输出中未找到任何作业数据")
+		return stats, nil, fmt.Errorf("FIO输出中未找到任何作业数据")
 	}
 
 	// 使用第一个作业的结果，或者如果使用了group_reporting则是合并的结果
@@ -412,8 +417,13 @@ func ParseFioOutput(outputStr string) (testtoolsv1.FioStats, error) {
 	for percentile, value := range job.Write.LatencyNs.Percentile {
 		stats.LatencyPercentiles["write_"+percentile] = fmt.Sprintf("%f", value/1000000) // 转换为毫秒
 	}
+	if len(fioOutput.Jobs) > 0 {
+		fioOutput.Status = "SUCCESS"
+	} else {
+		fioOutput.Status = "FAILED"
+	}
 
-	return stats, nil
+	return stats, &fioOutput, nil
 }
 
 // truncateString 截断字符串，用于日志记录
@@ -728,6 +738,12 @@ func ParseDigOutput(output string) *DigOutput {
 		}
 	}
 
+	if digOutput.Status == "NOERROR" {
+		digOutput.Status = "SUCCESS"
+	} else {
+		digOutput.Status = "FAILED"
+	}
+
 	return digOutput
 }
 
@@ -925,6 +941,11 @@ func ParsePingOutput(output string, host string) *PingOutput {
 
 	// 解析统计部分
 	ParsePingStatistics(output, pingOutput)
+	if pingOutput.Received > 0 {
+		pingOutput.Status = "SUCCESS"
+	} else {
+		pingOutput.Status = "FAILED"
+	}
 
 	return pingOutput
 }
@@ -936,116 +957,130 @@ func ParsePingStatistics(output string, pingOutput *PingOutput) {
 		// 尝试其他可能的分割标记
 		stats = ExtractSection(output, "Ping statistics for", "")
 		if stats == "" {
+			// 如果仍然找不到统计部分，检查是否有成功的ping响应
+			if len(pingOutput.SuccessfulPings) > 0 {
+				// 有成功的ping响应，手动设置接收包数
+				pingOutput.Received = len(pingOutput.SuccessfulPings)
+				if pingOutput.Transmitted == 0 {
+					// 如果发送包数未设置，假设等于或略大于接收包数
+					pingOutput.Transmitted = pingOutput.Received
+				}
+				// 计算统计数据
+				calculatePingStats(pingOutput)
+			}
 			return
 		}
 	}
 
+	// 更加健壮的解析逻辑
+	receivedFound := false
+	transmittedFound := false
+
 	lines := strings.Split(stats, "\n")
 	for _, line := range lines {
-		// 解析发送/接收/丢失的数据包
-		if strings.Contains(line, "packets transmitted") || strings.Contains(line, "Packets: Sent") {
-			// Linux/Unix格式: "4 packets transmitted, 4 received, 0% packet loss"
-			fields := strings.Fields(line)
+		line = strings.TrimSpace(line)
 
-			// 查找数据包发送数量
-			for i, field := range fields {
-				if field == "packets" && i > 0 && i < len(fields) {
-					if val, err := strconv.Atoi(fields[i-1]); err == nil {
-						pingOutput.Transmitted = val
-					}
-				}
-				if field == "transmitted," && i > 0 && i+2 < len(fields) {
-					if val, err := strconv.Atoi(fields[i+2]); err == nil {
-						pingOutput.Received = val
-					}
-				}
-				if field == "Sent" && i+1 < len(fields) {
-					if valStr := strings.Trim(fields[i+1], " =,"); valStr != "" {
-						if val, err := strconv.Atoi(valStr); err == nil {
-							pingOutput.Transmitted = val
-						}
-					}
-				}
-				if field == "Received" && i+1 < len(fields) {
-					if valStr := strings.Trim(fields[i+1], " =,"); valStr != "" {
-						if val, err := strconv.Atoi(valStr); err == nil {
-							pingOutput.Received = val
-						}
-					}
+		// 更全面的发送/接收包数解析
+		if strings.Contains(line, "packets transmitted") ||
+			strings.Contains(line, "Packets: Sent") ||
+			strings.Contains(line, "transmitted") {
+
+			// 检查多种格式的transmitted
+			transmittedRegex := regexp.MustCompile(`(\d+)(?:\s+packets)?\s+transmitted`)
+			if matches := transmittedRegex.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.Atoi(matches[1]); err == nil {
+					pingOutput.Transmitted = val
+					transmittedFound = true
 				}
 			}
 
-			// 查找丢包率
-			if strings.Contains(line, "% packet loss") || strings.Contains(line, "Lost") {
-				for i, field := range fields {
-					if strings.HasSuffix(field, "%") {
-						lossStr := strings.TrimSuffix(field, "%")
-						if val, err := strconv.ParseFloat(lossStr, 64); err == nil {
-							pingOutput.PacketLoss = val
-						}
-						break
-					}
-					if field == "Lost" && i+1 < len(fields) {
-						if valStr := strings.Trim(fields[i+1], " =,%()+"); valStr != "" {
-							if val, err := strconv.ParseFloat(valStr, 64); err == nil {
-								pingOutput.PacketLoss = val
-							}
-						}
+			// 检查多种格式的received
+			receivedRegex := regexp.MustCompile(`(\d+)(?:\s+received|\s+packets\s+received)`)
+			if matches := receivedRegex.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.Atoi(matches[1]); err == nil {
+					pingOutput.Received = val
+					receivedFound = true
+				}
+			}
+
+			// 检查丢包率
+			lossRegex := regexp.MustCompile(`(\d+(?:\.\d+)?)%\s+(?:packet\s+)?loss`)
+			if matches := lossRegex.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					pingOutput.PacketLoss = val
+				}
+			}
+		}
+
+		// 改进对RTT统计的解析
+		if strings.Contains(line, "min/avg/max") ||
+			strings.Contains(line, "Minimum") ||
+			strings.Contains(line, "rtt min/avg/max/mdev") {
+
+			// 尝试多种分隔符进行解析
+			rttRegex := regexp.MustCompile(`(?:min/avg/max(?:/[a-z]+)?\s*=\s*|rtt min/avg/max(?:/[a-z]+)?\s*=\s*)([0-9.]+)/([0-9.]+)/([0-9.]+)(?:/([0-9.]+))?`)
+			if matches := rttRegex.FindStringSubmatch(line); len(matches) > 3 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					pingOutput.MinRtt = val
+				}
+				if val, err := strconv.ParseFloat(matches[2], 64); err == nil {
+					pingOutput.AvgRtt = val
+				}
+				if val, err := strconv.ParseFloat(matches[3], 64); err == nil {
+					pingOutput.MaxRtt = val
+				}
+				if len(matches) > 4 && matches[4] != "" {
+					if val, err := strconv.ParseFloat(matches[4], 64); err == nil {
+						pingOutput.StdDevRtt = val
 					}
 				}
 			}
 		}
 
-		// 解析延迟统计 - Linux格式
-		if strings.Contains(line, "min/avg/max") {
-			parts := strings.Split(line, "=")
-			if len(parts) > 1 {
-				stats := strings.Split(strings.TrimSpace(parts[1]), "/")
-				if len(stats) >= 3 {
-					if val, err := strconv.ParseFloat(stats[0], 64); err == nil {
-						pingOutput.MinRtt = val
-					}
-					if val, err := strconv.ParseFloat(stats[1], 64); err == nil {
-						pingOutput.AvgRtt = val
-					}
-					if val, err := strconv.ParseFloat(stats[2], 64); err == nil {
-						pingOutput.MaxRtt = val
-					}
-					if len(stats) >= 4 && stats[3] != "" {
-						if val, err := strconv.ParseFloat(stats[3], 64); err == nil {
-							pingOutput.StdDevRtt = val
-						}
-					}
+		// Windows格式的单独RTT值解析
+		if strings.Contains(line, "Minimum") {
+			minRegex := regexp.MustCompile(`Minimum\s*[=:]\s*([0-9.]+)\s*ms`)
+			if matches := minRegex.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					pingOutput.MinRtt = val
 				}
 			}
 		}
-
-		// 解析延迟统计 - Windows格式
-		if strings.Contains(line, "Minimum") || strings.Contains(line, "Maximum") || strings.Contains(line, "Average") {
-			fields := strings.Fields(line)
-			for i, field := range fields {
-				if (field == "Minimum" || field == "Minimum:") && i+1 < len(fields) {
-					valStr := strings.Trim(fields[i+1], "ms=")
-					if val, err := strconv.ParseFloat(valStr, 64); err == nil {
-						pingOutput.MinRtt = val
-					}
+		if strings.Contains(line, "Maximum") {
+			maxRegex := regexp.MustCompile(`Maximum\s*[=:]\s*([0-9.]+)\s*ms`)
+			if matches := maxRegex.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					pingOutput.MaxRtt = val
 				}
-				if (field == "Maximum" || field == "Maximum:") && i+1 < len(fields) {
-					valStr := strings.Trim(fields[i+1], "ms=")
-					if val, err := strconv.ParseFloat(valStr, 64); err == nil {
-						pingOutput.MaxRtt = val
-					}
-				}
-				if (field == "Average" || field == "Average:") && i+1 < len(fields) {
-					valStr := strings.Trim(fields[i+1], "ms=")
-					if val, err := strconv.ParseFloat(valStr, 64); err == nil {
-						pingOutput.AvgRtt = val
-					}
+			}
+		}
+		if strings.Contains(line, "Average") {
+			avgRegex := regexp.MustCompile(`Average\s*[=:]\s*([0-9.]+)\s*ms`)
+			if matches := avgRegex.FindStringSubmatch(line); len(matches) > 1 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					pingOutput.AvgRtt = val
 				}
 			}
 		}
 	}
 
+	// 如果收到的包或发送的包信息没有找到，但有成功的ping记录
+	if (!receivedFound || !transmittedFound) && len(pingOutput.SuccessfulPings) > 0 {
+		if !receivedFound {
+			pingOutput.Received = len(pingOutput.SuccessfulPings)
+		}
+		if !transmittedFound {
+			// 如果发送包数未设置，假设等于或略大于接收包数
+			pingOutput.Transmitted = pingOutput.Received
+		}
+	}
+
+	// 确保如果有成功ping但统计为0，则计算统计值
+	calculatePingStats(pingOutput)
+}
+
+// 辅助函数：计算ping统计数据
+func calculatePingStats(pingOutput *PingOutput) {
 	// 如果计算不出丢包率，则基于传输和接收的包数计算
 	if pingOutput.PacketLoss == 0 && pingOutput.Transmitted > 0 {
 		if pingOutput.Received < pingOutput.Transmitted {
@@ -1446,6 +1481,12 @@ func ParseNCOutput(output string, nc *testtoolsv1.Nc) *NCOutput {
 		ncOutput.ExtraInfo = strings.Join(infoLines, "\n")
 	}
 
+	if ncOutput.ConnectionSuccess {
+		ncOutput.Status = "SUCCESS"
+	} else {
+		ncOutput.Status = "FAILED"
+	}
+
 	return ncOutput
 }
 
@@ -1458,91 +1499,71 @@ func ParseTcpPingOutput(output string, tcpPing *testtoolsv1.TcpPing) *TcpPingOut
 	}
 
 	// 解析每行记录的RTT值
-	pingRegex := regexp.MustCompile(`seq=(\d+) time=([0-9.]+) ms`)
+	var receivedCount int32 = 0
+	var maxSeq int32 = -1
+
 	for _, line := range strings.Split(output, "\n") {
-		if matches := pingRegex.FindStringSubmatch(line); len(matches) > 2 {
+		// 解析实际输出格式: "seq 0: tcp response from 147.75.40.148 [open]  214.942 ms"
+		if matches := regexp.MustCompile(`seq\s+(\d+):\s+tcp\s+response\s+from\s+.*\s+([0-9.]+)\s+ms`).FindStringSubmatch(line); len(matches) > 2 {
+			// 提取序列号
+			seqNum, _ := strconv.ParseInt(matches[1], 10, 32)
+			if int32(seqNum) > maxSeq {
+				maxSeq = int32(seqNum)
+			}
+
+			// 提取RTT值
 			if val, err := strconv.ParseFloat(matches[2], 64); err == nil {
 				tcpPingOutput.RttValues = append(tcpPingOutput.RttValues, val)
+				receivedCount++
 			}
 		}
 	}
 
-	// 解析统计部分
-	statsSection := ExtractSection(output, "--- TCP ping statistics ---", "")
-	if statsSection == "" {
-		statsSection = ExtractSection(output, "TCP ping statistics:", "")
+	// 设置发送和接收的包数
+	// 发送的包数至少是最大序列号+1（因为序列号从0开始）
+	if maxSeq >= 0 {
+		tcpPingOutput.Transmitted = maxSeq + 1
+	} else {
+		// 如果无法确定，则使用收到的响应数量
+		tcpPingOutput.Transmitted = receivedCount
 	}
 
-	// 解析发送和接收的包数
-	if packetsRegex := regexp.MustCompile(`(\d+) packets transmitted, (\d+) received`); packetsRegex.MatchString(statsSection) {
-		if matches := packetsRegex.FindStringSubmatch(statsSection); len(matches) > 2 {
-			if val, err := strconv.ParseInt(matches[1], 10, 32); err == nil {
-				tcpPingOutput.Transmitted = int32(val)
-			}
-			if val, err := strconv.ParseInt(matches[2], 10, 32); err == nil {
-				tcpPingOutput.Received = int32(val)
-			}
-		}
-	}
+	tcpPingOutput.Received = receivedCount
 
 	// 计算丢包率
 	if tcpPingOutput.Transmitted > 0 {
 		tcpPingOutput.PacketLoss = float64(tcpPingOutput.Transmitted-tcpPingOutput.Received) * 100.0 / float64(tcpPingOutput.Transmitted)
 	}
 
-	// 解析延迟统计
-	if rttRegex := regexp.MustCompile(`min/avg/max/mdev = ([0-9.]+)/([0-9.]+)/([0-9.]+)/([0-9.]+) ms`); rttRegex.MatchString(statsSection) {
-		if matches := rttRegex.FindStringSubmatch(statsSection); len(matches) > 4 {
-			if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
-				tcpPingOutput.MinLatency = val
-			}
-			if val, err := strconv.ParseFloat(matches[2], 64); err == nil {
-				tcpPingOutput.AvgLatency = val
-			}
-			if val, err := strconv.ParseFloat(matches[3], 64); err == nil {
-				tcpPingOutput.MaxLatency = val
-			}
-			if val, err := strconv.ParseFloat(matches[4], 64); err == nil {
-				tcpPingOutput.StdDevLatency = val
-			}
-		}
-	}
-
-	// 如果缺少统计部分，但有RTT值，则手动计算统计信息
+	// 计算延迟统计
 	if len(tcpPingOutput.RttValues) > 0 {
-		// 找到最小值
-		if tcpPingOutput.MinLatency == 0 {
-			minVal := tcpPingOutput.RttValues[0]
-			for _, val := range tcpPingOutput.RttValues {
-				if val < minVal {
-					minVal = val
-				}
+		// 最小延迟
+		minVal := tcpPingOutput.RttValues[0]
+		for _, val := range tcpPingOutput.RttValues {
+			if val < minVal {
+				minVal = val
 			}
-			tcpPingOutput.MinLatency = minVal
 		}
+		tcpPingOutput.MinLatency = minVal
 
-		// 找到最大值
-		if tcpPingOutput.MaxLatency == 0 {
-			maxVal := tcpPingOutput.RttValues[0]
-			for _, val := range tcpPingOutput.RttValues {
-				if val > maxVal {
-					maxVal = val
-				}
+		// 最大延迟
+		maxVal := tcpPingOutput.RttValues[0]
+		for _, val := range tcpPingOutput.RttValues {
+			if val > maxVal {
+				maxVal = val
 			}
-			tcpPingOutput.MaxLatency = maxVal
 		}
+		tcpPingOutput.MaxLatency = maxVal
 
-		// 计算平均值
-		if tcpPingOutput.AvgLatency == 0 {
-			var sum float64
-			for _, val := range tcpPingOutput.RttValues {
-				sum += val
-			}
-			tcpPingOutput.AvgLatency = sum / float64(len(tcpPingOutput.RttValues))
+		// 平均延迟
+		var sum float64
+		for _, val := range tcpPingOutput.RttValues {
+			sum += val
 		}
+		tcpPingOutput.AvgLatency = sum / float64(len(tcpPingOutput.RttValues))
 
-		// 计算标准差
-		if tcpPingOutput.StdDevLatency == 0 && len(tcpPingOutput.RttValues) > 1 {
+		// 标准差
+		if len(tcpPingOutput.RttValues) > 1 {
 			var sumSquares float64
 			for _, val := range tcpPingOutput.RttValues {
 				diff := val - tcpPingOutput.AvgLatency
@@ -1550,6 +1571,13 @@ func ParseTcpPingOutput(output string, tcpPing *testtoolsv1.TcpPing) *TcpPingOut
 			}
 			tcpPingOutput.StdDevLatency = math.Sqrt(sumSquares / float64(len(tcpPingOutput.RttValues)-1))
 		}
+	}
+
+	// 设置状态字段
+	if tcpPingOutput.Received > 0 {
+		tcpPingOutput.Status = "SUCCESS"
+	} else {
+		tcpPingOutput.Status = "FAILED"
 	}
 
 	return tcpPingOutput
@@ -1685,6 +1713,11 @@ func parseIperfJsonOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput
 				}
 			}
 		}
+	}
+	if iperfOutput.ReceiveBandwidth > 0 {
+		iperfOutput.Status = "SUCCESS"
+	} else {
+		iperfOutput.Status = "FAILED"
 	}
 
 	return iperfOutput, nil
@@ -1885,6 +1918,12 @@ func parseIperfTextOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput
 				}
 			}
 		}
+	}
+
+	if iperfOutput.ReceiveBandwidth > 0 {
+		iperfOutput.Status = "SUCCESS"
+	} else {
+		iperfOutput.Status = "FAILED"
 	}
 
 	return iperfOutput, nil

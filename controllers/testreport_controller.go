@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"github.com/xiaoming/testtools/pkg/utils"
 	"reflect"
 	"strconv"
 	"strings"
@@ -1427,10 +1428,7 @@ func (r *TestReportReconciler) createTestReportForResource(ctx context.Context, 
 	// 修复: 确保 reportName 不以连字符开头，符合 Kubernetes 命名规则
 	kindLower := strings.ToLower(resourceKind)
 	// 确保名称符合规范: 只能包含小写字母、数字和连字符，不能以连字符开头或结尾
-	reportName := fmt.Sprintf("%s-%s-report", kindLower, resourceName)
-	if strings.HasPrefix(reportName, "-") {
-		reportName = fmt.Sprintf("%s%s-report", kindLower, resourceName)
-	}
+	reportName := utils.GenerateTestReportName(kindLower, resourceName)
 
 	// 检查TestReport是否已存在
 	existingReport := &testtoolsv1.TestReport{}
@@ -1591,8 +1589,9 @@ func (r *TestReportReconciler) addNcResult(testReport *testtoolsv1.TestReport, n
 		ResourceName:      nc.Name,
 		ResourceNamespace: nc.Namespace,
 		ExecutionTime:     *nc.Status.LastExecutionTime,
-		Success:           nc.Status.ConnectionSuccess,
-		ResponseTime:      nc.Status.ConnectionLatency,
+		//Success:           nc.Status.ConnectionSuccess,
+		Success:      nc.Status.Status == "Succeeded",
+		ResponseTime: nc.Status.ConnectionLatency,
 	}
 
 	// 设置输出摘要
@@ -1614,14 +1613,14 @@ func (r *TestReportReconciler) addNcResult(testReport *testtoolsv1.TestReport, n
 
 	// 添加统计信息
 	result.MetricValues = map[string]string{
-		"连接成功":     fmt.Sprintf("%t", nc.Status.ConnectionSuccess),
-		"连接延迟(ms)": nc.Status.ConnectionLatency,
-		"协议":       nc.Spec.Protocol,
-		"主机":       nc.Spec.Host,
-		"端口":       fmt.Sprintf("%d", nc.Spec.Port),
-		"查询次数":     fmt.Sprintf("%d", nc.Status.QueryCount),
-		"成功次数":     fmt.Sprintf("%d", nc.Status.SuccessCount),
-		"失败次数":     fmt.Sprintf("%d", nc.Status.FailureCount),
+		"ConnectionSuccess":     fmt.Sprintf("%t", nc.Status.ConnectionSuccess),
+		"ConnectionLatency(ms)": nc.Status.ConnectionLatency,
+		"Protocol":              nc.Spec.Protocol,
+		"Host":                  nc.Spec.Host,
+		"Port":                  fmt.Sprintf("%d", nc.Spec.Port),
+		"QueryCount":            fmt.Sprintf("%d", nc.Status.QueryCount),
+		"SuccessCount":          fmt.Sprintf("%d", nc.Status.SuccessCount),
+		"FailureCount":          fmt.Sprintf("%d", nc.Status.FailureCount),
 	}
 
 	// 添加结果到报告
@@ -1708,8 +1707,9 @@ func (r *TestReportReconciler) addTcpPingResult(testReport *testtoolsv1.TestRepo
 		ResourceName:      tcpPing.Name,
 		ResourceNamespace: tcpPing.Namespace,
 		ExecutionTime:     *tcpPing.Status.LastExecutionTime,
-		Success:           tcpPing.Status.Stats.Received > 0,
-		ResponseTime:      tcpPing.Status.Stats.AvgLatency,
+		//Success:           tcpPing.Status.Stats.Received > 0,
+		Success:      tcpPing.Status.Status == "Succeeded",
+		ResponseTime: tcpPing.Status.Stats.AvgLatency,
 	}
 
 	// 设置输出摘要
@@ -1732,18 +1732,18 @@ func (r *TestReportReconciler) addTcpPingResult(testReport *testtoolsv1.TestRepo
 
 	// 添加统计信息
 	result.MetricValues = map[string]string{
-		"主机":        tcpPing.Spec.Host,
-		"端口":        fmt.Sprintf("%d", tcpPing.Spec.Port),
-		"发送包数":      fmt.Sprintf("%d", tcpPing.Status.Stats.Transmitted),
-		"接收包数":      fmt.Sprintf("%d", tcpPing.Status.Stats.Received),
-		"丢包率":       tcpPing.Status.Stats.PacketLoss,
-		"最小延迟(ms)":  tcpPing.Status.Stats.MinLatency,
-		"平均延迟(ms)":  tcpPing.Status.Stats.AvgLatency,
-		"最大延迟(ms)":  tcpPing.Status.Stats.MaxLatency,
-		"延迟标准差(ms)": tcpPing.Status.Stats.StdDevLatency,
-		"查询次数":      fmt.Sprintf("%d", tcpPing.Status.QueryCount),
-		"成功次数":      fmt.Sprintf("%d", tcpPing.Status.SuccessCount),
-		"失败次数":      fmt.Sprintf("%d", tcpPing.Status.FailureCount),
+		"Host":              tcpPing.Spec.Host,
+		"Port":              fmt.Sprintf("%d", tcpPing.Spec.Port),
+		"Transmitted":       fmt.Sprintf("%d", tcpPing.Status.Stats.Transmitted),
+		"Received":          fmt.Sprintf("%d", tcpPing.Status.Stats.Received),
+		"PacketLoss":        tcpPing.Status.Stats.PacketLoss,
+		"MinLatency(ms)":    tcpPing.Status.Stats.MinLatency,
+		"AvgLatency(ms)":    tcpPing.Status.Stats.AvgLatency,
+		"MaxLatency(ms)":    tcpPing.Status.Stats.MaxLatency,
+		"StdDevLatency(ms)": tcpPing.Status.Stats.StdDevLatency,
+		"QueryCount":        fmt.Sprintf("%d", tcpPing.Status.QueryCount),
+		"SuccessCount":      fmt.Sprintf("%d", tcpPing.Status.SuccessCount),
+		"FailureCount":      fmt.Sprintf("%d", tcpPing.Status.FailureCount),
 	}
 
 	// 添加结果到报告
@@ -1861,21 +1861,21 @@ func (r *TestReportReconciler) addIperfResult(testReport *testtoolsv1.TestReport
 
 	// 添加统计信息
 	result.MetricValues = map[string]string{
-		"主机":      iperf.Spec.Host,
-		"端口":      fmt.Sprintf("%d", iperf.Spec.Port),
-		"协议":      iperf.Spec.Protocol,
-		"模式":      iperf.Spec.Mode,
-		"发送带宽":    iperf.Status.Stats.SendBandwidth,
-		"接收带宽":    iperf.Status.Stats.ReceiveBandwidth,
-		"RTT(ms)": iperf.Status.Stats.RttMs,
-		"抖动(ms)":  iperf.Status.Stats.Jitter,
-		"丢包数":     fmt.Sprintf("%d", iperf.Status.Stats.LostPackets),
-		"丢包率":     iperf.Status.Stats.LostPercent,
-		"重传次数":    fmt.Sprintf("%d", iperf.Status.Stats.Retransmits),
-		"CPU利用率":  iperf.Status.Stats.CpuUtilization,
-		"查询次数":    fmt.Sprintf("%d", iperf.Status.QueryCount),
-		"成功次数":    fmt.Sprintf("%d", iperf.Status.SuccessCount),
-		"失败次数":    fmt.Sprintf("%d", iperf.Status.FailureCount),
+		"Host":             iperf.Spec.Host,
+		"Port":             fmt.Sprintf("%d", iperf.Spec.Port),
+		"Protocol":         iperf.Spec.Protocol,
+		"Mode":             iperf.Spec.Mode,
+		"SendBandwidth":    iperf.Status.Stats.SendBandwidth,
+		"ReceiveBandwidth": iperf.Status.Stats.ReceiveBandwidth,
+		"RTT(ms)":          iperf.Status.Stats.RttMs,
+		"JTT(ms)":          iperf.Status.Stats.Jitter,
+		"LostPackets":      fmt.Sprintf("%d", iperf.Status.Stats.LostPackets),
+		"LostPercent":      iperf.Status.Stats.LostPercent,
+		"Retransmits":      fmt.Sprintf("%d", iperf.Status.Stats.Retransmits),
+		"CpuUtilization":   iperf.Status.Stats.CpuUtilization,
+		"QueryCount":       fmt.Sprintf("%d", iperf.Status.QueryCount),
+		"SuccessCount":     fmt.Sprintf("%d", iperf.Status.SuccessCount),
+		"FailureCount":     fmt.Sprintf("%d", iperf.Status.FailureCount),
 	}
 
 	// 添加结果到报告
@@ -2004,11 +2004,11 @@ func (r *TestReportReconciler) addSkoopResult(testReport *testtoolsv1.TestReport
 
 	// 添加统计信息
 	result.MetricValues = map[string]string{
-		"源地址":  skoop.Spec.Task.SourceAddress,
-		"目标地址": skoop.Spec.Task.DestinationAddress,
-		"目标端口": fmt.Sprintf("%d", skoop.Spec.Task.DestinationPort),
-		"协议":   skoop.Spec.Task.Protocol,
-		"状态":   skoop.Status.Status,
+		"SourceAddress":      skoop.Spec.Task.SourceAddress,
+		"DestinationAddress": skoop.Spec.Task.DestinationAddress,
+		"DestinationPort":    fmt.Sprintf("%d", skoop.Spec.Task.DestinationPort),
+		"Protocol":           skoop.Spec.Task.Protocol,
+		"Status":             skoop.Status.Status,
 	}
 
 	// 添加路径节点信息
@@ -2036,9 +2036,9 @@ func (r *TestReportReconciler) addSkoopResult(testReport *testtoolsv1.TestReport
 	}
 
 	// 添加其他统计信息
-	result.MetricValues["查询次数"] = fmt.Sprintf("%d", skoop.Status.QueryCount)
-	result.MetricValues["成功次数"] = fmt.Sprintf("%d", skoop.Status.SuccessCount)
-	result.MetricValues["失败次数"] = fmt.Sprintf("%d", skoop.Status.FailureCount)
+	result.MetricValues["QueryCount"] = fmt.Sprintf("%d", skoop.Status.QueryCount)
+	result.MetricValues["SuccessCount"] = fmt.Sprintf("%d", skoop.Status.SuccessCount)
+	result.MetricValues["FailureCount"] = fmt.Sprintf("%d", skoop.Status.FailureCount)
 
 	// 添加结果到报告
 	testReport.Status.Results = append(testReport.Status.Results, result)

@@ -22,4 +22,4 @@ spec:
   # 直接 IO (绕过操作系统缓存)
   directIO: true
   # 指定镜像
-  image: "192.168.31.34:18093/testtools-fio:v3"
+  image: "registry.dev.rdev.tech:18093/testtools-fio:v3"

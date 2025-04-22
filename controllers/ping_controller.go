@@ -227,32 +227,61 @@ func (r *PingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 					Message:            fmt.Sprintf("Ping测试获取结果失败: %v", err),
 				})
 			} else {
-				// 成功执行
-				pingCopy.Status.Status = "Succeeded"
-				pingCopy.Status.SuccessCount++
-				pingCopy.Status.LastResult = jobOutput
 
-				if pingCopy.Status.QueryCount == 0 {
-					pingCopy.Status.QueryCount = 1
-				}
-
-				// 使用utils.ParsePingOutput解析输出并设置统计信息
 				pingOutput := utils.ParsePingOutput(jobOutput, ping.Spec.Host)
+				if pingOutput.Status == "SUCCESS" {
+					// 成功执行
+					pingCopy.Status.Status = "Succeeded"
+					pingCopy.Status.SuccessCount++
+					pingCopy.Status.LastResult = jobOutput
 
-				// 设置状态中的性能指标
-				pingCopy.Status.PacketLoss = fmt.Sprintf("%f", pingOutput.PacketLoss)
-				pingCopy.Status.MinRtt = fmt.Sprintf("%f", pingOutput.MinRtt)
-				pingCopy.Status.AvgRtt = fmt.Sprintf("%f", pingOutput.AvgRtt)
-				pingCopy.Status.MaxRtt = fmt.Sprintf("%f", pingOutput.MaxRtt)
+					if pingCopy.Status.QueryCount == 0 {
+						pingCopy.Status.QueryCount = 1
+					}
 
-				// 添加成功条件
-				utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
-					Type:               "Completed",
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: now,
-					Reason:             "TestCompleted",
-					Message:            "Ping测试已成功完成",
-				})
+					// 使用utils.ParsePingOutput解析输出并设置统计信息
+
+					// 设置状态中的性能指标
+					pingCopy.Status.PacketLoss = fmt.Sprintf("%f", pingOutput.PacketLoss)
+					pingCopy.Status.MinRtt = fmt.Sprintf("%f", pingOutput.MinRtt)
+					pingCopy.Status.AvgRtt = fmt.Sprintf("%f", pingOutput.AvgRtt)
+					pingCopy.Status.MaxRtt = fmt.Sprintf("%f", pingOutput.MaxRtt)
+
+					// 添加成功条件
+					utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
+						Type:               "Completed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            "Ping测试已成功完成",
+					})
+				} else {
+					// 成功执行
+					pingCopy.Status.Status = "Failed"
+					pingCopy.Status.FailureCount++
+					pingCopy.Status.LastResult = jobOutput
+
+					if pingCopy.Status.QueryCount == 0 {
+						pingCopy.Status.QueryCount = 1
+					}
+
+					// 使用utils.ParsePingOutput解析输出并设置统计信息
+
+					// 设置状态中的性能指标
+					pingCopy.Status.PacketLoss = fmt.Sprintf("%f", pingOutput.PacketLoss)
+					pingCopy.Status.MinRtt = fmt.Sprintf("%f", pingOutput.MinRtt)
+					pingCopy.Status.AvgRtt = fmt.Sprintf("%f", pingOutput.AvgRtt)
+					pingCopy.Status.MaxRtt = fmt.Sprintf("%f", pingOutput.MaxRtt)
+
+					// 添加成功条件
+					utils.SetCondition(&pingCopy.Status.Conditions, metav1.Condition{
+						Type:               "Failed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            "Ping test complete failed",
+					})
+				}
 
 				// 设置TestReportName，以便TestReport控制器可以找到它
 				if pingCopy.Status.TestReportName == "" {

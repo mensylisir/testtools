@@ -230,29 +230,55 @@ func (r *NcReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 				// 解析 Nc 输出并更新状态
 				ncOutput := utils.ParseNCOutput(jobOutput, ncCopy)
 
-				// 更新状态信息
-				ncCopy.Status.Status = "Succeeded"
-				// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
-				if nc.Spec.Schedule == "" {
-					ncCopy.Status.SuccessCount = 1
+				if ncOutput.Status == "SUCCESS" {
+					// 更新状态信息
+					ncCopy.Status.Status = "Succeeded"
+					// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
+					if nc.Spec.Schedule == "" {
+						ncCopy.Status.SuccessCount = 1
+					} else {
+						ncCopy.Status.SuccessCount++
+					}
+					ncCopy.Status.LastResult = jobOutput
+
+					// 记录详细数据
+					logger.Info("Nc测试成功完成",
+						"host", ncOutput.Host,
+						"port", ncOutput.Port)
+
+					// 标记测试已完成
+					utils.SetCondition(&ncCopy.Status.Conditions, metav1.Condition{
+						Type:               "Completed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            "Nc测试已成功完成",
+					})
 				} else {
-					ncCopy.Status.SuccessCount++
+					// 更新状态信息
+					ncCopy.Status.Status = "Failed"
+					// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
+					if nc.Spec.Schedule == "" {
+						ncCopy.Status.FailureCount = 1
+					} else {
+						ncCopy.Status.FailureCount++
+					}
+					ncCopy.Status.LastResult = jobOutput
+
+					// 记录详细数据
+					logger.Info("Nc test complete failed",
+						"host", ncOutput.Host,
+						"port", ncOutput.Port)
+
+					// 标记测试已完成
+					utils.SetCondition(&ncCopy.Status.Conditions, metav1.Condition{
+						Type:               "Failed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            "Nc test complete failed",
+					})
 				}
-				ncCopy.Status.LastResult = jobOutput
-
-				// 记录详细数据
-				logger.Info("Nc测试成功完成",
-					"host", ncOutput.Host,
-					"port", ncOutput.Port)
-
-				// 标记测试已完成
-				utils.SetCondition(&ncCopy.Status.Conditions, metav1.Condition{
-					Type:               "Completed",
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: now,
-					Reason:             "TestCompleted",
-					Message:            "Nc测试已成功完成",
-				})
 
 				// 设置TestReportName，使TestReport控制器能够自动创建报告
 				// 如果TestReportName为空，则设置为默认格式
@@ -348,7 +374,7 @@ func (r *NcReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 			return ctrl.Result{}, nil
 		}
 	}
-	
+
 	// 只有在明确设置了Schedule字段时才安排下一次执行
 	if nc.Spec.Schedule != "" {
 		interval := 60 // 默认60秒

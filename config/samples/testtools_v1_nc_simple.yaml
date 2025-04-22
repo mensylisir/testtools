@@ -7,4 +7,4 @@ spec:
   port: 443
   timeout: 5
   verbose: false
-  image: "192.168.31.34:18093/testtools-nc:v3"
+  image: "registry.dev.rdev.tech:18093/testtools-nc:v3"

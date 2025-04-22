@@ -57,7 +57,7 @@ type SkoopSpec struct {
 	Timeout int32 `json:"timeout,omitempty"`
 
 	// 采集器使用的镜像
-	// +kubebuilder:default="kubeskoop/kubeskoop:v0.1.0"
+	// +kubebuilder:default="registry.dev.rdev.tech:18093/kubeskoop/testtools-skoop:v2"
 	Image string `json:"image,omitempty"`
 
 	// NodeSelector is a selector which must be true for the pod to fit on a node.

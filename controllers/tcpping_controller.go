@@ -186,33 +186,64 @@ func (r *TcpPingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				})
 			} else {
 				tcppingOutput := utils.ParseTcpPingOutput(jobOutput, tcppingCopy)
-				tcppingCopy.Status.Status = "Succeeded"
-				if tcppingCopy.Spec.Schedule == "" {
-					tcppingCopy.Status.SuccessCount = 1
+				if tcppingOutput.Status == "SUCCESS" {
+					tcppingCopy.Status.Status = "Succeeded"
+					if tcppingCopy.Spec.Schedule == "" {
+						tcppingCopy.Status.SuccessCount = 1
+					} else {
+						tcppingCopy.Status.SuccessCount++
+					}
+					tcppingCopy.Status.LastResult = jobOutput
+
+					if tcppingCopy.Status.TestReportName == "" {
+						tcppingCopy.Status.TestReportName = utils.GenerateTestReportName("Tcpping", tcpping.Name)
+					}
+
+					if tcppingCopy.Status.QueryCount == 0 {
+						tcppingCopy.Status.QueryCount = 1
+					}
+
+					logger.Info("TcpPing test succeeded",
+						"host", tcppingOutput.Host,
+						"port", tcppingOutput.Port)
+
+					utils.SetCondition(&tcppingCopy.Status.Conditions, metav1.Condition{
+						Type:               "Succeeded",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            fmt.Sprintf("Tcpping test completed successfully"),
+					})
 				} else {
-					tcppingCopy.Status.SuccessCount++
+					tcppingCopy.Status.Status = "Failed"
+					if tcppingCopy.Spec.Schedule == "" {
+						tcppingCopy.Status.FailureCount = 1
+					} else {
+						tcppingCopy.Status.FailureCount++
+					}
+					tcppingCopy.Status.LastResult = jobOutput
+
+					if tcppingCopy.Status.TestReportName == "" {
+						tcppingCopy.Status.TestReportName = utils.GenerateTestReportName("Tcpping", tcpping.Name)
+					}
+
+					if tcppingCopy.Status.QueryCount == 0 {
+						tcppingCopy.Status.QueryCount = 1
+					}
+
+					logger.Info("TcpPing test failed",
+						"host", tcppingOutput.Host,
+						"port", tcppingOutput.Port)
+
+					utils.SetCondition(&tcppingCopy.Status.Conditions, metav1.Condition{
+						Type:               "Failed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            fmt.Sprintf("Tcpping test completed failed"),
+					})
 				}
-				tcppingCopy.Status.LastResult = jobOutput
 
-				if tcppingCopy.Status.TestReportName == "" {
-					tcppingCopy.Status.TestReportName = utils.GenerateTestReportName("Tcpping", tcpping.Name)
-				}
-
-				if tcppingCopy.Status.QueryCount == 0 {
-					tcppingCopy.Status.QueryCount = 1
-				}
-
-				logger.Info("TcpPing test succeeded",
-					"host", tcppingOutput.Host,
-					"port", tcppingOutput.Port)
-
-				utils.SetCondition(&tcppingCopy.Status.Conditions, metav1.Condition{
-					Type:               "Succeeded",
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: now,
-					Reason:             "TestCompleted",
-					Message:            fmt.Sprintf("Tcpping test completed successfully"),
-				})
 			}
 
 			if updateErr := r.Status().Update(ctx, tcppingCopy); updateErr != nil {

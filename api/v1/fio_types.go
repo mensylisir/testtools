@@ -103,7 +103,7 @@ type FioSpec struct {
 
 	// Image specifies the container image used to run the FIO test
 	// +optional
-	// +kubebuilder:default="172.30.1.13:18093/testtools-fio:v1"
+	// +kubebuilder:default="registry.dev.rdev.tech:18093/testtools-fio:v3"
 	Image string `json:"image,omitempty"`
 
 	// RetainJobPods controls whether to retain the completed Job and Pods

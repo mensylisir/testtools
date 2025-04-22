@@ -1,7 +1,7 @@
-# PowerShell脚本用于在Windows环境下构建Docker镜像
+﻿# PowerShell脚本用于在Windows环境下构建Docker镜像
 
-$REGISTRY = "registry.dev.rdev.tech:18093"
-$VERSION = "v1"
+$REGISTRY = "172.30.1.13:18093"
+$VERSION = "v3"
 
 # 构建并推送FIO镜像
 Write-Host "构建FIO镜像..."
@@ -36,7 +36,7 @@ docker push ${REGISTRY}/testtools-iperf:${VERSION}
 
 # 构建并推送控制器镜像
 Write-Host "构建控制器镜像..."
-docker build -t "${REGISTRY}/testtools-controller:v70" .
-docker push "${REGISTRY}/testtools-controller:v70"
+docker build -t "${REGISTRY}/testtools-controller:v107" .
+docker push "${REGISTRY}/testtools-controller:v107"
 
-Write-Host "所有镜像已构建并推送完成" 
+Write-Host "所有镜像已构建并推送完成"

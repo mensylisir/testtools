@@ -88,7 +88,7 @@ type IperfSpec struct {
 	Schedule string `json:"schedule,omitempty"`
 
 	// 是否开启详细日志输出
-	// +kubebuilder:default=false
+	// +kubebuilder:default=true
 	Verbose bool `json:"verbose,omitempty"`
 
 	// 是否开启JSON输出
@@ -105,7 +105,7 @@ type IperfSpec struct {
 
 	// Image specifies the container image used to run the Dig test
 	// +optional
-	// +kubebuilder:default="172.30.1.13:18093/testtools-iperf:v1"
+	// +kubebuilder:default="registry.dev.rdev.tech:18093/testtools-iperf:v3"
 	Image string `json:"image,omitempty"`
 
 	// NodeSelector is a selector which must be true for the pod to fit on a node.

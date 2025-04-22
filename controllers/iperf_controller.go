@@ -232,7 +232,7 @@ func (r *IperfReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 						Reason:             "ResultRetrievalFailed",
 						Message:            fmt.Sprintf("无法获取Iperf测试结果: %v", err),
 					})
-				} else {
+				} else if clientOutput.Status == "SUCCESS" {
 					iperfCopy.Status.Status = "Succeeded"
 					if iperfCopy.Spec.Schedule == "" {
 						iperfCopy.Status.SuccessCount = 1
@@ -267,6 +267,42 @@ func (r *IperfReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 						LastTransitionTime: now,
 						Reason:             "TestCompleted",
 						Message:            fmt.Sprintf("Iperf test completed successfully"),
+					})
+				} else {
+					iperfCopy.Status.Status = "Failed"
+					if iperfCopy.Spec.Schedule == "" {
+						iperfCopy.Status.FailureCount = 1
+					} else {
+						iperfCopy.Status.FailureCount++
+					}
+					iperfCopy.Status.LastResult = clientJobOutput
+
+					iperfCopy.Status.Stats = testtoolsv1.IperfStats{
+						StartTime:        iperfCopy.Status.LastExecutionTime,
+						EndTime:          &metav1.Time{Time: time.Now()},
+						SentBytes:        clientOutput.SentBytes,
+						ReceivedBytes:    clientOutput.ReceivedBytes,
+						SendBandwidth:    fmt.Sprintf("%f", clientOutput.SendBandwidth),
+						ReceiveBandwidth: fmt.Sprintf("%f", clientOutput.ReceiveBandwidth),
+						Jitter:           fmt.Sprintf("%f", clientOutput.Jitter),
+						LostPackets:      clientOutput.LostPackets,
+						LostPercent:      fmt.Sprintf("%f", clientOutput.LostPercent),
+						Retransmits:      clientOutput.Retransmits,
+						RttMs:            fmt.Sprintf("%f", clientOutput.RttMs),
+						CpuUtilization:   fmt.Sprintf("%f", clientOutput.CpuUtilization),
+					}
+
+					logger.Info("Iperf test completed failed", "server.host", clientOutput.Host,
+						"server.port", clientOutput.Port,
+						"client.host", clientOutput.Host,
+						"client.port", clientOutput.Port)
+
+					utils.SetCondition(&iperfCopy.Status.Conditions, metav1.Condition{
+						Type:               "Failed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            fmt.Sprintf("Iperf test completed failed"),
 					})
 				}
 				if iperfCopy.Status.TestReportName == "" {

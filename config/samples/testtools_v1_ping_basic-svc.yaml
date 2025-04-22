@@ -1,0 +1,8 @@
+apiVersion: testtools.xiaoming.com/v1
+kind: Ping
+metadata:
+  name: ping-basic-svc
+spec:
+  host: "test-svc.default.svc.cluster.local"
+  # 指定镜像
+  image: "registry.dev.rdev.tech:18093/testtools-ping:v3"

@@ -231,44 +231,86 @@ func (r *DigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.R
 				// 解析 Dig 输出并更新状态
 				digOutput := utils.ParseDigOutput(jobOutput)
 
-				// 更新状态信息
-				digCopy.Status.Status = "Succeeded"
-				// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
-				if dig.Spec.Schedule == "" {
-					digCopy.Status.SuccessCount = 1
+				if digOutput.Status == "SUCCESS" {
+					// 更新状态信息
+					digCopy.Status.Status = "Succeeded"
+					// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
+					if dig.Spec.Schedule == "" {
+						digCopy.Status.SuccessCount = 1
+					} else {
+						digCopy.Status.SuccessCount++
+					}
+					digCopy.Status.LastResult = jobOutput
+					digCopy.Status.AverageResponseTime = fmt.Sprintf("%f", digOutput.QueryTime)
+
+					// 设置TestReportName，使TestReport控制器能够自动创建报告
+					// 如果TestReportName为空，则设置为默认格式
+					if digCopy.Status.TestReportName == "" {
+						digCopy.Status.TestReportName = utils.GenerateTestReportName("Dig", dig.Name)
+					}
+
+					// 确保所有重要字段都被设置
+					if digCopy.Status.QueryCount == 0 {
+						digCopy.Status.QueryCount = 1
+					}
+
+					// 记录详细数据
+					logger.Info("Dig测试成功完成",
+						"domain", dig.Spec.Domain,
+						"server", digOutput.Server,
+						"status", digOutput.Status,
+						"queryTime", digOutput.QueryTime,
+						"ipAddressCount", len(digOutput.IpAddresses))
+
+					// 标记测试已完成
+					utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
+						Type:               "Completed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            "Dig测试已成功完成",
+					})
 				} else {
-					digCopy.Status.SuccessCount++
+					// 更新状态信息
+					digCopy.Status.Status = "Failed"
+					// 正确设置SuccessCount - 如果没有schedule则设置为1而不是递增
+					if dig.Spec.Schedule == "" {
+						digCopy.Status.FailureCount = 1
+					} else {
+						digCopy.Status.FailureCount++
+					}
+					digCopy.Status.LastResult = jobOutput
+					digCopy.Status.AverageResponseTime = fmt.Sprintf("%f", digOutput.QueryTime)
+
+					// 设置TestReportName，使TestReport控制器能够自动创建报告
+					// 如果TestReportName为空，则设置为默认格式
+					if digCopy.Status.TestReportName == "" {
+						digCopy.Status.TestReportName = utils.GenerateTestReportName("Dig", dig.Name)
+					}
+
+					// 确保所有重要字段都被设置
+					if digCopy.Status.QueryCount == 0 {
+						digCopy.Status.QueryCount = 1
+					}
+
+					// 记录详细数据
+					logger.Info("Dig test completed failed",
+						"domain", dig.Spec.Domain,
+						"server", digOutput.Server,
+						"status", digOutput.Status,
+						"queryTime", digOutput.QueryTime,
+						"ipAddressCount", len(digOutput.IpAddresses))
+
+					// 标记测试已完成
+					utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
+						Type:               "Failed",
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: now,
+						Reason:             "TestCompleted",
+						Message:            "Dig test completed failed",
+					})
 				}
-				digCopy.Status.LastResult = jobOutput
-				digCopy.Status.AverageResponseTime = fmt.Sprintf("%f", digOutput.QueryTime)
 
-				// 设置TestReportName，使TestReport控制器能够自动创建报告
-				// 如果TestReportName为空，则设置为默认格式
-				if digCopy.Status.TestReportName == "" {
-					digCopy.Status.TestReportName = utils.GenerateTestReportName("Dig", dig.Name)
-				}
-
-				// 确保所有重要字段都被设置
-				if digCopy.Status.QueryCount == 0 {
-					digCopy.Status.QueryCount = 1
-				}
-
-				// 记录详细数据
-				logger.Info("Dig测试成功完成",
-					"domain", dig.Spec.Domain,
-					"server", digOutput.Server,
-					"status", digOutput.Status,
-					"queryTime", digOutput.QueryTime,
-					"ipAddressCount", len(digOutput.IpAddresses))
-
-				// 标记测试已完成
-				utils.SetCondition(&digCopy.Status.Conditions, metav1.Condition{
-					Type:               "Completed",
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: now,
-					Reason:             "TestCompleted",
-					Message:            "Dig测试已成功完成",
-				})
 			}
 			if updateErr := r.Status().Update(ctx, digCopy); updateErr != nil {
 				logger.Info(updateErr.Error(), "failed to update Dig status", "dig", dig.Name, "namespace", dig.Namespace)

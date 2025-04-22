@@ -7,7 +7,7 @@ metadata:
     tier: testing
 spec:
   # 指定一个可能不存在或无权限的目录
-  filePath: "/nonexistent/directory/test-file"
+  filePath: "/nonexistent/directory/nonexisttest-file"
   # 读写模式
   readWrite: "randread"
   # 块大小
@@ -27,4 +27,4 @@ spec:
   # 最大重试次数
   maxRetries: 2
   # 指定镜像
-  image: "192.168.31.34:18093/testtools-fio:v3"
+  image: "registry.dev.rdev.tech:18093/testtools-fio:v3"
