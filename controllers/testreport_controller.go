@@ -620,6 +620,7 @@ func (r *TestReportReconciler) addDigResult(testReport *testtoolsv1.TestReport, 
 
 	// 更新测试报告摘要
 	testReport.Status.Summary.Total = len(testReport.Status.Results)
+	testReport.Status.Summary.Metrics = result.MetricValues
 
 	// 计算成功和失败数量
 	succeeded := 0
@@ -797,6 +798,7 @@ func (r *TestReportReconciler) addPingResult(testReport *testtoolsv1.TestReport,
 
 	// 添加结果到测试报告
 	testReport.Status.Results = append(testReport.Status.Results, result)
+	testReport.Status.Summary.Metrics = result.MetricValues
 
 	// 更新摘要指标
 	testReport.Status.Summary.Total++
@@ -894,7 +896,7 @@ func (r *TestReportReconciler) addFioResult(testReport *testtoolsv1.TestReport, 
 
 	// 更新测试报告摘要
 	testReport.Status.Summary.Total = len(testReport.Status.Results)
-
+	testReport.Status.Summary.Metrics = result.MetricValues
 	// 计算成功和失败数量
 	succeeded := 0
 	failed := 0
@@ -1625,6 +1627,7 @@ func (r *TestReportReconciler) addNcResult(testReport *testtoolsv1.TestReport, n
 
 	// 添加结果到报告
 	testReport.Status.Results = append(testReport.Status.Results, result)
+	testReport.Status.Summary.Metrics = result.MetricValues
 
 	// 更新汇总计数
 	testReport.Status.Summary.Total++
@@ -1748,6 +1751,7 @@ func (r *TestReportReconciler) addTcpPingResult(testReport *testtoolsv1.TestRepo
 
 	// 添加结果到报告
 	testReport.Status.Results = append(testReport.Status.Results, result)
+	testReport.Status.Summary.Metrics = result.MetricValues
 
 	// 更新汇总计数
 	testReport.Status.Summary.Total++
@@ -1880,6 +1884,7 @@ func (r *TestReportReconciler) addIperfResult(testReport *testtoolsv1.TestReport
 
 	// 添加结果到报告
 	testReport.Status.Results = append(testReport.Status.Results, result)
+	testReport.Status.Summary.Metrics = result.MetricValues
 
 	// 更新汇总计数
 	testReport.Status.Summary.Total++
