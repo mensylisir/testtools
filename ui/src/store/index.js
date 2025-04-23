@@ -1,15 +1,18 @@
 import { createStore } from 'vuex'
-import digApi from '@/api/dig'
+import createPersistedState from 'vuex-persistedstate'
 
 export default createStore({
     state: {
         lodding: false,
         clusterCredentials: null,
-        digs: []
+        currentNamespace: 'default'
     },
+    plugins: [createPersistedState({
+        paths: ['currentNamespace']
+    })],
     getters: {
         getClusterCredentials: state => state.clusterCredentials,
-        getDigs: state => state.digs,
+        getCurrentNamespace: (state) => state.currentNamespace
     },
     mutations: {
         SET_LOADING(state, loading) {
@@ -20,6 +23,9 @@ export default createStore({
         },
         CLUSTER_CREDENTIALS(state, credentials) {
             state.clusterCredentials = credentials
+        },
+        SET_CURRENT_NAMESPACE(state, namespace) {
+            state.currentNamespace = namespace
         }
     },
     actions: {
@@ -27,14 +33,9 @@ export default createStore({
             commit('CLUSTER_CREDENTIALS', credentials)
             return credentials
         },
-        async getDigs({ commit }) {
-            try {
-                const response = await digApi.getDigList()
-            } catch (error) {
-                commit('SET_ERROR', error.message)
-            } finally {
-                commit('SET_LOADING', false)
-            }
+        setCurrentNamespace({ commit, dispatch }, namespace) {
+            commit('SET_CURRENT_NAMESPACE', namespace)
+            return namespace
         }
     }
 })

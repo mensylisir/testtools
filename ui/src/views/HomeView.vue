@@ -10,19 +10,19 @@
       
       <div class="tools-grid">
         <div class="tool-card card">
-          <h3>DNS查询 (Dig)</h3>
+          <h3>DNS查询</h3>
           <p>使用Dig工具进行DNS查询，检查域名解析是否正常工作</p>
           <router-link to="/dig" class="btn btn-primary">查看Dig工具</router-link>
         </div>
         
         <div class="tool-card card">
-          <h3>连通性测试 (Ping)</h3>
+          <h3>连通性测试</h3>
           <p>使用Ping工具测试与目标主机的网络连通性</p>
           <router-link to="/ping" class="btn btn-primary">查看Ping工具</router-link>
         </div>
         
         <div class="tool-card card">
-          <h3>IO性能测试 (FIO)</h3>
+          <h3>IO性能测试</h3>
           <p>使用FIO工具测试存储IO性能</p>
           <router-link to="/fio" class="btn btn-primary">查看FIO工具</router-link>
         </div>

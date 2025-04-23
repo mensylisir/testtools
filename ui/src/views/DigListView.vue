@@ -1,7 +1,7 @@
 <template>
   <div class="dig-list">
     <div class="header-actions">
-      <h1>DNS查询工具 (Dig)</h1>
+      <h1>DNS查询工具</h1>
       <router-link to="/dig/create" class="btn btn-primary">创建新的Dig查询</router-link>
     </div>
 
@@ -12,7 +12,7 @@
 
     <div v-else-if="error" class="error-container card">
       <h3>错误</h3>
-      <p>{{ error }}</p>
+      <p class="error-message">{{ error }}</p>
       <button @click="fetchDigs" class="btn btn-primary">重试</button>
     </div>
 
@@ -61,7 +61,7 @@
               <td>{{ dig.status.averageResponseTime || '-' }}</td>
               <td>{{ formatDate(dig.status.lastExecutionTime) }}</td>
               <td class="actions">
-                <router-link :to="'/dig/' + dig.metadata.name" class="btn btn-secondary">详情</router-link>
+                <router-link :to="`/dig/${dig.metadata.name}`" class="btn btn-secondary">详情</router-link>
                 <button @click="confirmDelete(dig)" class="btn btn-danger">删除</button>
               </td>
             </tr>
@@ -295,7 +295,7 @@ export default {
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 1rem;
-  margin-top: 1.5rem;
+  gap: 0.5rem;
+  margin-top: 1rem;
 }
 </style> 
