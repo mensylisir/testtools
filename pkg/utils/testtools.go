@@ -1011,7 +1011,28 @@ func ParsePingStatistics(output string, pingOutput *PingOutput) {
 			}
 		}
 
-		c
+		if strings.Contains(line, "min/avg/max") ||
+			strings.Contains(line, "Minimum") ||
+			strings.Contains(line, "rtt min/avg/max/mdev") {
+
+			rttRegex := regexp.MustCompile(`(?:min/avg/max(?:/[a-z]+)?\s*=\s*|rtt min/avg/max(?:/[a-z]+)?\s*=\s*)([0-9.]+)/([0-9.]+)/([0-9.]+)(?:/([0-9.]+))?`)
+			if matches := rttRegex.FindStringSubmatch(line); len(matches) > 3 {
+				if val, err := strconv.ParseFloat(matches[1], 64); err == nil {
+					pingOutput.MinRtt = val
+				}
+				if val, err := strconv.ParseFloat(matches[2], 64); err == nil {
+					pingOutput.AvgRtt = val
+				}
+				if val, err := strconv.ParseFloat(matches[3], 64); err == nil {
+					pingOutput.MaxRtt = val
+				}
+				if len(matches) > 4 && matches[4] != "" {
+					if val, err := strconv.ParseFloat(matches[4], 64); err == nil {
+						pingOutput.StdDevRtt = val
+					}
+				}
+			}
+		}
 
 		// Windows格式的单独RTT值解析
 		if strings.Contains(line, "Minimum") {
