@@ -83,7 +83,7 @@ spec:
                 description: Host is the host to ping
                 type: string
               image:
-                default: 172.30.1.13:18093/testtools-ping:v1
+                default: registry.dev.rdev.tech:18093/testtools-ping:v3
                 description: Image specifies the container image used to run the Ping
                   test
                 type: string

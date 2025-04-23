@@ -125,7 +125,7 @@ spec:
                     type: boolean
                 type: object
               image:
-                default: kubeskoop/kubeskoop:v0.1.0
+                default: registry.dev.rdev.tech:18093/kubeskoop/testtools-skoop:v2
                 description: 采集器使用的镜像
                 type: string
               logging:
