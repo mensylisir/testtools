@@ -27,4 +27,4 @@ spec:
   # 最大重试次数
   maxRetries: 2
   # 指定镜像
-  image: "registry.dev.rdev.tech:18093/testtools-fio:v3"
+  image: "192.168.31.34:18093/testtools-fio:v3"

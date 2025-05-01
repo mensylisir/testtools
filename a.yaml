@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: iperf-client-iperf-sample-simple-job2
+  namespace: default
+spec:
+  backoffLimit: 2
+  completionMode: NonIndexed
+  completions: 1
+  parallelism: 1
+  suspend: false
+  template:
+    spec:
+      containers:
+      - args:
+        - -c
+        - "10.233.79.119"
+        - -p
+        - "5201"
+        - -t
+        - "10"
+        - -i
+        - "1"
+        - -V
+        command:
+        - iperf3
+        image: 192.168.31.34:18093/testtools-iperf:v3
+        imagePullPolicy: IfNotPresent
+        name: executor
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      restartPolicy: Never

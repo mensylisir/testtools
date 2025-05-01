@@ -12,6 +12,9 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+
 	testtoolsv1 "github.com/xiaoming/testtools/api/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -252,8 +255,22 @@ func PrepareFioJob(ctx context.Context, k8sClient client.Client, fio *testtoolsv
 		return "", err
 	}
 
+	jobParams := &JobParams{
+		Namespace:      fio.Namespace,
+		Name:           jobName,
+		Command:        "fio",
+		Args:           args,
+		Labels:         labels,
+		Image:          fio.Spec.Image,
+		NodeName:       fio.Spec.NodeName,
+		NodeSelector:   fio.Spec.NodeSelector,
+		Affinity:       nil,
+		Port:           nil,
+		ReadinessProbe: nil,
+	}
+
 	// 创建Job
-	job, err := CreateJobForCommand(ctx, k8sClient, fio.Namespace, jobName, "fio", args, labels, fio.Spec.Image, fio.Spec.NodeName, fio.Spec.NodeSelector)
+	job, err := CreateJobForCommand(ctx, k8sClient, jobParams)
 	if err != nil {
 		logger.Error(err, "创建Job失败")
 		return "", err
@@ -522,8 +539,22 @@ func PrepareDigJob(ctx context.Context, k8sClient client.Client, dig *testtoolsv
 		return "", err
 	}
 
+	jobParams := &JobParams{
+		Namespace:      dig.Namespace,
+		Name:           jobName,
+		Command:        "dig",
+		Args:           args,
+		Labels:         labels,
+		Image:          dig.Spec.Image,
+		NodeName:       dig.Spec.NodeName,
+		NodeSelector:   dig.Spec.NodeSelector,
+		Affinity:       nil,
+		Port:           nil,
+		ReadinessProbe: nil,
+	}
+
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	job, err := CreateJobForCommand(ctx, k8sClient, dig.Namespace, jobName, "dig", args, labels, dig.Spec.Image, dig.Spec.NodeName, dig.Spec.NodeSelector)
+	job, err := CreateJobForCommand(ctx, k8sClient, jobParams)
 	if err != nil {
 		logger.Error(err, "创建Dig Job失败")
 		return "", err
@@ -856,8 +887,22 @@ func PreparePingJob(ctx context.Context, k8sClient client.Client, ping *testtool
 
 	logger.Info("创建新的Ping Job", "name", jobName, "args", args)
 
+	jobParams := &JobParams{
+		Namespace:      ping.Namespace,
+		Name:           jobName,
+		Command:        "ping",
+		Args:           args,
+		Labels:         labels,
+		Image:          ping.Spec.Image,
+		NodeName:       ping.Spec.NodeName,
+		NodeSelector:   ping.Spec.NodeSelector,
+		Affinity:       nil,
+		Port:           nil,
+		ReadinessProbe: nil,
+	}
+
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	job, err := CreateJobForCommand(ctx, k8sClient, ping.Namespace, jobName, "ping", args, labels, ping.Spec.Image, ping.Spec.NodeName, ping.Spec.NodeSelector)
+	job, err := CreateJobForCommand(ctx, k8sClient, jobParams)
 	if err != nil {
 		logger.Error(err, "创建Ping Job失败")
 		return "", err
@@ -1186,33 +1231,35 @@ func BuildNCArgs(nc *testtoolsv1.Nc) []string {
 func BuildTcpPingArgs(tcpPing *testtoolsv1.TcpPing) []string {
 	var args []string
 
-	// 添加结果格式参数
-	if tcpPing.Spec.Verbose {
-		args = append(args, "-d") // 显示时间戳
-		args = append(args, "-c") // 以列格式输出
-	}
+	args = append(args, "--tcp")
 
-	// 添加超时时间
-	if tcpPing.Spec.Timeout > 0 {
-		args = append(args, "-w", fmt.Sprintf("%d", tcpPing.Spec.Timeout))
-	}
-
-	// 添加间隔时间
-	if tcpPing.Spec.Interval > 0 {
-		args = append(args, "-r", fmt.Sprintf("%d", tcpPing.Spec.Interval))
-	}
-
-	// 添加测试次数
-	if tcpPing.Spec.Count > 0 {
-		args = append(args, "-x", fmt.Sprintf("%d", tcpPing.Spec.Count))
-	}
-
-	// 添加目标主机和端口
-	args = append(args, tcpPing.Spec.Host)
 	if tcpPing.Spec.Port > 0 {
-		args = append(args, fmt.Sprintf("%d", tcpPing.Spec.Port))
+		args = append(args, "-p", strconv.Itoa(int(tcpPing.Spec.Port)))
 	}
 
+	count := int32(4)
+	if tcpPing.Spec.Count > 0 {
+		count = tcpPing.Spec.Count
+	}
+	args = append(args, "-c", strconv.Itoa(int(count)))
+
+	if tcpPing.Spec.Interval > 0 {
+		args = append(args, "--delay", fmt.Sprintf("%d", tcpPing.Spec.Interval))
+	}
+
+	if tcpPing.Spec.Timeout > 0 {
+		// 添加注释提醒调用者处理超时
+		// log.Printf("Warning: nping does not have a direct total timeout parameter like tcpping's -w.")
+		// log.Printf("         Timeout (%ds) should be handled externally, e.g., using context.", tcpPing.Spec.Timeout)
+	}
+
+	if tcpPing.Spec.Verbose {
+		args = append(args, "-v")
+	}
+
+	if tcpPing.Spec.Host != "" {
+		args = append(args, tcpPing.Spec.Host)
+	}
 	return args
 }
 
@@ -1326,9 +1373,9 @@ func BuildIperfServerArgs(iperf *testtoolsv1.Iperf) []string {
 	}
 
 	// 添加输出格式
-	if iperf.Spec.JsonOutput {
-		args = append(args, "-J")
-	}
+	//if iperf.Spec.JsonOutput {
+	//	args = append(args, "-J")
+	//}
 
 	// 添加IPv4/IPv6选项
 	if iperf.Spec.UseIPv4Only {
@@ -1488,96 +1535,111 @@ func ParseNCOutput(output string, nc *testtoolsv1.Nc) *NCOutput {
 }
 
 // ParseTcpPingOutput 解析TCP Ping命令输出
-func ParseTcpPingOutput(output string, tcpPing *testtoolsv1.TcpPing) *TcpPingOutput {
-	tcpPingOutput := &TcpPingOutput{
-		Host:      tcpPing.Spec.Host,
-		Port:      tcpPing.Spec.Port,
-		RttValues: []float64{},
-	}
+func ParseTcpPingOutput(output string, tcpping *testtoolsv1.TcpPing) *TcpPingOutput {
+	lines := strings.Split(output, "\n")
 
-	// 解析每行记录的RTT值
-	var receivedCount int32 = 0
-	var maxSeq int32 = -1
+	var (
+		rttInlineRegex   = regexp.MustCompile(`\(([\d.]+)\s*(ms|s)\)`)
+		rttStatsRegex    = regexp.MustCompile(`Min rtt:\s*([\d.]+)\s*ms\s*\|\s*Max rtt:\s*([\d.]+)\s*ms\s*\|\s*Avg rtt:\s*([\d.]+)\s*ms`)
+		packetStatsRegex = regexp.MustCompile(`(?i)(Probes sent|Raw packets sent):\s*(\d+).*?\|\s*Rcvd:\s*(\d+)`)
+	)
 
-	for _, line := range strings.Split(output, "\n") {
-		// 解析实际输出格式: "seq 0: tcp response from 147.75.40.148 [open]  214.942 ms"
-		if matches := regexp.MustCompile(`seq\s+(\d+):\s+tcp\s+response\s+from\s+.*\s+([0-9.]+)\s+ms`).FindStringSubmatch(line); len(matches) > 2 {
-			// 提取序列号
-			seqNum, _ := strconv.ParseInt(matches[1], 10, 32)
-			if int32(seqNum) > maxSeq {
-				maxSeq = int32(seqNum)
-			}
+	var (
+		transmitted                                       int
+		received                                          int
+		rttValues                                         []float64
+		minLatency, maxLatency, avgLatency, stdDevLatency float64
+		status                                            = "FAILED"
+	)
 
-			// 提取RTT值
-			if val, err := strconv.ParseFloat(matches[2], 64); err == nil {
-				tcpPingOutput.RttValues = append(tcpPingOutput.RttValues, val)
-				receivedCount++
-			}
-		}
-	}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
 
-	// 设置发送和接收的包数
-	// 发送的包数至少是最大序列号+1（因为序列号从0开始）
-	if maxSeq >= 0 {
-		tcpPingOutput.Transmitted = maxSeq + 1
-	} else {
-		// 如果无法确定，则使用收到的响应数量
-		tcpPingOutput.Transmitted = receivedCount
-	}
-
-	tcpPingOutput.Received = receivedCount
-
-	// 计算丢包率
-	if tcpPingOutput.Transmitted > 0 {
-		tcpPingOutput.PacketLoss = float64(tcpPingOutput.Transmitted-tcpPingOutput.Received) * 100.0 / float64(tcpPingOutput.Transmitted)
-	}
-
-	// 计算延迟统计
-	if len(tcpPingOutput.RttValues) > 0 {
-		// 最小延迟
-		minVal := tcpPingOutput.RttValues[0]
-		for _, val := range tcpPingOutput.RttValues {
-			if val < minVal {
-				minVal = val
+		// 提取 RTT 行的值，例如 RCVD [...] (0.10s)
+		if strings.HasPrefix(line, "RCVD") || rttInlineRegex.MatchString(line) {
+			matches := rttInlineRegex.FindAllStringSubmatch(line, -1)
+			for _, match := range matches {
+				valStr := match[1]
+				unit := match[2]
+				val, err := strconv.ParseFloat(valStr, 64)
+				if err != nil {
+					continue
+				}
+				if unit == "s" {
+					val *= 1000
+				}
+				rttValues = append(rttValues, val)
 			}
 		}
-		tcpPingOutput.MinLatency = minVal
 
-		// 最大延迟
-		maxVal := tcpPingOutput.RttValues[0]
-		for _, val := range tcpPingOutput.RttValues {
-			if val > maxVal {
-				maxVal = val
+		// 提取包统计：Probes sent: 5 | Rcvd: 5
+		if packetStatsRegex.MatchString(line) {
+			match := packetStatsRegex.FindStringSubmatch(line)
+			if len(match) >= 4 {
+				transmitted, _ = strconv.Atoi(match[2])
+				received, _ = strconv.Atoi(match[3])
 			}
 		}
-		tcpPingOutput.MaxLatency = maxVal
 
-		// 平均延迟
-		var sum float64
-		for _, val := range tcpPingOutput.RttValues {
-			sum += val
+		// 提取 RTT 统计
+		if rttStatsRegex.MatchString(line) {
+			match := rttStatsRegex.FindStringSubmatch(line)
+			if len(match) == 4 {
+				minLatency, _ = strconv.ParseFloat(match[1], 64)
+				maxLatency, _ = strconv.ParseFloat(match[2], 64)
+				avgLatency, _ = strconv.ParseFloat(match[3], 64)
+			}
 		}
-		tcpPingOutput.AvgLatency = sum / float64(len(tcpPingOutput.RttValues))
+	}
+
+	// 若 RTT 统计缺失，则计算
+	if len(rttValues) > 0 {
+		if avgLatency == 0 {
+			var sum float64
+			minLatency = rttValues[0]
+			maxLatency = rttValues[0]
+			for _, v := range rttValues {
+				sum += v
+				if v < minLatency {
+					minLatency = v
+				}
+				if v > maxLatency {
+					maxLatency = v
+				}
+			}
+			avgLatency = sum / float64(len(rttValues))
+		}
 
 		// 标准差
-		if len(tcpPingOutput.RttValues) > 1 {
-			var sumSquares float64
-			for _, val := range tcpPingOutput.RttValues {
-				diff := val - tcpPingOutput.AvgLatency
-				sumSquares += diff * diff
-			}
-			tcpPingOutput.StdDevLatency = math.Sqrt(sumSquares / float64(len(tcpPingOutput.RttValues)-1))
+		var sumSquares float64
+		for _, v := range rttValues {
+			sumSquares += (v - avgLatency) * (v - avgLatency)
 		}
+		stdDevLatency = math.Sqrt(sumSquares / float64(len(rttValues)))
 	}
 
-	// 设置状态字段
-	if tcpPingOutput.Received > 0 {
-		tcpPingOutput.Status = "SUCCESS"
-	} else {
-		tcpPingOutput.Status = "FAILED"
+	packetLoss := 100.0
+	if transmitted > 0 {
+		packetLoss = 100.0 * float64(transmitted-received) / float64(transmitted)
 	}
 
-	return tcpPingOutput
+	if received > 0 {
+		status = "SUCCESS"
+	}
+
+	return &TcpPingOutput{
+		Host:          tcpping.Spec.Host,
+		Port:          tcpping.Spec.Port,
+		Transmitted:   int32(transmitted),
+		Received:      int32(received),
+		PacketLoss:    packetLoss,
+		MinLatency:    minLatency,
+		AvgLatency:    avgLatency,
+		MaxLatency:    maxLatency,
+		StdDevLatency: stdDevLatency,
+		RttValues:     rttValues,
+		Status:        status,
+	}
 }
 
 // ParseIperfOutput 解析iperf命令输出
@@ -1590,7 +1652,7 @@ func ParseIperfOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput, er
 	//}
 
 	// 检查输出是否是JSON格式
-	if strings.HasPrefix(strings.TrimSpace(output), "{") && strings.Contains(output, "\"start\"") {
+	if strings.Contains(strings.TrimSpace(output), "{") && strings.Contains(output, "\"start\"") {
 		// 解析JSON格式的iperf输出
 		return parseIperfJsonOutput(output, iperf)
 	}
@@ -1609,9 +1671,25 @@ func parseIperfJsonOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput
 		IntervalReports: []IperfIntervalReport{},
 	}
 
-	err := json.Unmarshal([]byte(output), &jsonData)
+	// 尝试定位JSON部分
+	jsonStart := strings.Index(output, "{")
+	if jsonStart < 0 {
+		return iperfOutput, fmt.Errorf("iperf输出中未找到JSON开始标记 '{'")
+	}
+
+	jsonEnd := strings.LastIndex(output, "}")
+	if jsonEnd < 0 || jsonEnd <= jsonStart {
+		return iperfOutput, fmt.Errorf("iperf输出中未找到JSON结束标记 '}' 或格式无效")
+	}
+
+	// 提取JSON部分
+	jsonStr := output[jsonStart : jsonEnd+1]
+
+	// 尝试解析JSON
+	err := json.Unmarshal([]byte(jsonStr), &jsonData)
 	if err != nil {
-		return iperfOutput, fmt.Errorf("解析JSON输出失败: %v", err)
+		// 可以选择在这里添加一些清理逻辑，类似于 ParseFioOutput，但先尝试直接解析
+		return iperfOutput, fmt.Errorf("解析提取的JSON输出失败: %v, 提取的JSON字符串: %s", err, truncateString(jsonStr, 200))
 	}
 
 	// 获取起始信息
@@ -1741,7 +1819,7 @@ func parseIperfTextOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput
 		}
 
 		// 检测客户端/服务器信息
-		if strings.Contains(line, "Client connecting to") {
+		if strings.Contains(line, "connected to") {
 			parts := strings.Fields(line)
 			if len(parts) >= 4 {
 				iperfOutput.Host = parts[3]
@@ -1764,7 +1842,7 @@ func parseIperfTextOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput
 		}
 
 		// 检查是否是间隔报告行
-		if !inSummary && (strings.Contains(line, "sec") && strings.Contains(line, "Bytes") && strings.Contains(line, "bits/sec")) {
+		if strings.Contains(line, "sec") && strings.Contains(line, "Bytes") && strings.Contains(line, "bits/sec") && !strings.Contains(line, "sender") && !strings.Contains(line, "receiver") {
 			fields := strings.Fields(line)
 			if len(fields) >= 8 {
 				// 解析间隔
@@ -1820,13 +1898,13 @@ func parseIperfTextOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput
 		}
 
 		// 检查是否进入总结部分
-		if strings.Contains(line, "[ ID]") && strings.Contains(line, "Transfer") && strings.Contains(line, "Bandwidth") {
+		if strings.Contains(line, "Summary Results") {
 			inSummary = true
 			continue
 		}
 
 		// 解析总结部分
-		if inSummary && strings.Contains(line, "[SUM]") {
+		if inSummary && strings.Contains(line, "sender") {
 			fields := strings.Fields(line)
 			if len(fields) >= 8 {
 				// 解析总传输字节数
@@ -1860,6 +1938,46 @@ func parseIperfTextOutput(output string, iperf *testtoolsv1.Iperf) (*IperfOutput
 							multiplier = 1000000000.0
 						}
 						iperfOutput.SendBandwidth = val * multiplier
+					}
+				}
+			}
+		}
+
+		// 解析总结部分
+		if inSummary && strings.Contains(line, "receiver") {
+			fields := strings.Fields(line)
+			if len(fields) >= 8 {
+				// 解析总传输字节数
+				if recievedBytesStr := fields[4]; recievedBytesStr != "" {
+					if val, err := strconv.ParseFloat(recievedBytesStr, 64); err == nil {
+						// 可能需要根据单位进行转换
+						unit := fields[5]
+						multiplier := 1.0
+						if strings.HasPrefix(unit, "K") {
+							multiplier = 1000.0
+						} else if strings.HasPrefix(unit, "M") {
+							multiplier = 1000000.0
+						} else if strings.HasPrefix(unit, "G") {
+							multiplier = 1000000000.0
+						}
+						iperfOutput.ReceivedBytes = int64(val * multiplier)
+					}
+				}
+
+				// 解析总带宽
+				if bandwidthStr := fields[6]; bandwidthStr != "" {
+					if val, err := strconv.ParseFloat(bandwidthStr, 64); err == nil {
+						// 可能需要根据单位进行转换
+						unit := fields[7]
+						multiplier := 1.0
+						if strings.HasPrefix(unit, "K") {
+							multiplier = 1000.0
+						} else if strings.HasPrefix(unit, "M") {
+							multiplier = 1000000.0
+						} else if strings.HasPrefix(unit, "G") {
+							multiplier = 1000000000.0
+						}
+						iperfOutput.ReceiveBandwidth = val * multiplier
 					}
 				}
 			}
@@ -1999,8 +2117,22 @@ func PrepareNcJob(ctx context.Context, k8sClient client.Client, nc *testtoolsv1.
 		return "", err
 	}
 
+	jobParams := &JobParams{
+		Namespace:      nc.Namespace,
+		Name:           jobName,
+		Command:        "nc",
+		Args:           args,
+		Labels:         labels,
+		Image:          nc.Spec.Image,
+		NodeName:       nc.Spec.NodeName,
+		NodeSelector:   nc.Spec.NodeSelector,
+		Affinity:       nil,
+		Port:           nil,
+		ReadinessProbe: nil,
+	}
+
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	job, err := CreateJobForCommand(ctx, k8sClient, nc.Namespace, jobName, "nc", args, labels, nc.Spec.Image, nc.Spec.NodeName, nc.Spec.NodeSelector)
+	job, err := CreateJobForCommand(ctx, k8sClient, jobParams)
 	if err != nil {
 		logger.Error(err, "创建NC Job失败")
 		return "", err
@@ -2099,8 +2231,22 @@ func PrepareTcpPingJob(ctx context.Context, k8sClient client.Client, tcpping *te
 		return "", err
 	}
 
+	jobParams := &JobParams{
+		Namespace:      tcpping.Namespace,
+		Name:           jobName,
+		Command:        "nping",
+		Args:           args,
+		Labels:         labels,
+		Image:          tcpping.Spec.Image,
+		NodeName:       tcpping.Spec.NodeName,
+		NodeSelector:   tcpping.Spec.NodeSelector,
+		Affinity:       nil,
+		Port:           nil,
+		ReadinessProbe: nil,
+	}
+
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	job, err := CreateJobForCommand(ctx, k8sClient, tcpping.Namespace, jobName, "tcpping", args, labels, tcpping.Spec.Image, tcpping.Spec.NodeName, tcpping.Spec.NodeSelector)
+	job, err := CreateJobForCommand(ctx, k8sClient, jobParams)
 	if err != nil {
 		logger.Error(err, "创建TcpPing Job失败")
 		return "", err
@@ -2199,8 +2345,21 @@ func PrepareSkoopJob(ctx context.Context, k8sClient client.Client, skoop *testto
 		return "", err
 	}
 
+	jobParams := &JobParams{
+		Namespace:      skoop.Namespace,
+		Name:           jobName,
+		Command:        "skoop",
+		Args:           args,
+		Labels:         labels,
+		Image:          skoop.Spec.Image,
+		NodeName:       skoop.Spec.NodeName,
+		NodeSelector:   skoop.Spec.NodeSelector,
+		Affinity:       nil,
+		Port:           nil,
+		ReadinessProbe: nil,
+	}
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	job, err := CreateJobForCommand(ctx, k8sClient, skoop.Namespace, jobName, "skoop", args, labels, skoop.Spec.Image, skoop.Spec.NodeName, skoop.Spec.NodeSelector)
+	job, err := CreateJobForCommand(ctx, k8sClient, jobParams)
 	if err != nil {
 		logger.Error(err, "创建Skoop Job失败")
 		return "", err
@@ -2543,8 +2702,67 @@ func PrepareIperfServerJob(ctx context.Context, k8sClient client.Client, iperf *
 		return "", err
 	}
 
+	var affinity *corev1.Affinity
+	if iperf.Spec.EnableAntiAffinity {
+		affinity = &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "app.kubernetes.io/instance",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{iperf.Name},
+								},
+								{
+									Key:      "type",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"iperf"},
+								},
+							},
+						},
+						TopologyKey: "kubernetes.io/hostname",
+					},
+				},
+			},
+		}
+	}
+
+	port := &corev1.ContainerPort{
+		Name:          "ipersrv-port",
+		ContainerPort: iperf.Spec.Port,
+		Protocol:      corev1.ProtocolTCP,
+	}
+
+	readinessProbe := &corev1.Probe{
+		InitialDelaySeconds: 5,
+		PeriodSeconds:       10,
+		TimeoutSeconds:      1,
+		FailureThreshold:    3,
+		SuccessThreshold:    1,
+		ProbeHandler: corev1.ProbeHandler{
+			TCPSocket: &corev1.TCPSocketAction{
+				Port: intstr.IntOrString{IntVal: iperf.Spec.Port},
+			},
+		},
+	}
+
+	jobParams := &JobParams{
+		Namespace:      iperf.Namespace,
+		Name:           jobName,
+		Command:        "iperf3",
+		Args:           args,
+		Labels:         labels,
+		Image:          iperf.Spec.Image,
+		NodeName:       iperf.Spec.NodeName,
+		NodeSelector:   iperf.Spec.NodeSelector,
+		Affinity:       affinity,
+		Port:           port,
+		ReadinessProbe: readinessProbe,
+	}
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	job, err := CreateJobForCommand(ctx, k8sClient, iperf.Namespace, jobName, "iperf3", args, labels, iperf.Spec.Image, iperf.Spec.NodeName, iperf.Spec.NodeSelector)
+	job, err := CreateJobForCommand(ctx, k8sClient, jobParams)
 	if err != nil {
 		logger.Error(err, "创建Iperf Server Job失败")
 		return "", err
@@ -2631,8 +2849,48 @@ func PrepareIperfClientJob(ctx context.Context, k8sClient client.Client, iperf *
 		return "", err
 	}
 
+	var affinity *corev1.Affinity
+	if iperf.Spec.EnableAntiAffinity {
+		affinity = &corev1.Affinity{
+			PodAntiAffinity: &corev1.PodAntiAffinity{
+				RequiredDuringSchedulingIgnoredDuringExecution: []corev1.PodAffinityTerm{
+					{
+						LabelSelector: &metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "app.kubernetes.io/instance",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{iperf.Name},
+								},
+								{
+									Key:      "type",
+									Operator: metav1.LabelSelectorOpIn,
+									Values:   []string{"iperf"},
+								},
+							},
+						},
+						TopologyKey: "kubernetes.io/hostname",
+					},
+				},
+			},
+		}
+	}
+
+	jobParams := &JobParams{
+		Namespace:      iperf.Namespace,
+		Name:           jobName,
+		Command:        "iperf3",
+		Args:           args,
+		Labels:         labels,
+		Image:          iperf.Spec.Image,
+		NodeName:       iperf.Spec.NodeName,
+		NodeSelector:   iperf.Spec.NodeSelector,
+		Affinity:       affinity,
+		Port:           nil,
+		ReadinessProbe: nil,
+	}
 	// 创建新Job - 传递作业名称时确保没有重复的"-job"后缀
-	job, err := CreateJobForCommand(ctx, k8sClient, iperf.Namespace, jobName, "iperf3", args, labels, iperf.Spec.Image, iperf.Spec.NodeName, iperf.Spec.NodeSelector)
+	job, err := CreateJobForCommand(ctx, k8sClient, jobParams)
 	if err != nil {
 		logger.Error(err, "创建Iperf Client Job失败")
 		return "", err

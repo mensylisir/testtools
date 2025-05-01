@@ -3,5 +3,5 @@ kind: Dig
 metadata:
   name: dig-basic-svc
 spec:
-  domain: "test-svc.default.svc.cluster.local"
-  image: "registry.dev.rdev.tech:18093/testtools-dig:v3"
+  domain: "kubernetes.default.svc.cluster.local"
+  image: "192.168.31.34:18093/testtools-dig:v3"

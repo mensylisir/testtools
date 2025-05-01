@@ -10,7 +10,7 @@ spec:
   host: "non-existent-host-12345.example.invalid"
   
   # 只发送3个包，以便快速失败
-  count: 3
+  count: 10
   
   # 设置较短的超时
   timeout: 2
@@ -21,4 +21,4 @@ spec:
   # 最多重试2次
   maxRetries: 2
   
-  image: "registry.dev.rdev.tech:18093/testtools-ping:v3"
+  image: "192.168.31.34:18093/testtools-ping:v3"

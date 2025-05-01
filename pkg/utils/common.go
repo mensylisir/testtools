@@ -112,50 +112,65 @@ func indexOf(text, substring string) int {
 }
 
 // CreateJobForCommand creates a Kubernetes Job to execute a command
-func CreateJobForCommand(ctx context.Context, k8sClient client.Client, namespace, name, command string, args []string, labels map[string]string, image string, nodeName string, nodeSelector map[string]string) (*batchv1.Job, error) {
+func CreateJobForCommand(ctx context.Context, k8sClient client.Client, jobParams *JobParams) (*batchv1.Job, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Creating job to execute command", "namespace", namespace, "name", name, "command", command, "image", image)
+	logger.Info("Creating job to execute command", "namespace", jobParams.Namespace, "name", jobParams.Name, "command", jobParams.Command, "image", jobParams.Image)
 
 	// 如果没有提供镜像，使用默认镜像
-	if image == "" {
-		image = "debian:bullseye-slim"
+	if jobParams.Image == "" {
+		jobParams.Image = "debian:bullseye-slim"
 	}
 
 	// 创建基本的job对象
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels:    labels,
+			Name:      jobParams.Name,
+			Namespace: jobParams.Namespace,
+			Labels:    jobParams.Labels,
 		},
 		Spec: batchv1.JobSpec{
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: jobParams.Labels,
 				},
 				Spec: corev1.PodSpec{
 					RestartPolicy: corev1.RestartPolicyNever,
 					Containers: []corev1.Container{
 						{
 							Name:            "executor",
-							Image:           image,
+							Image:           jobParams.Image,
 							ImagePullPolicy: corev1.PullIfNotPresent,
-							Command:         []string{command},
-							Args:            args,
+							Command:         []string{jobParams.Command},
+							Args:            jobParams.Args,
+							//Ports:           []corev1.ContainerPort{*jobParams.Port},
+							//ReadinessProbe: jobParams.ReadinessProbe,
 						},
 					},
+					//Affinity: jobParams.Affinity,
 				},
 			},
 			BackoffLimit: func() *int32 { i := int32(2); return &i }(),
 		},
 	}
 
-	if len(nodeName) > 0 {
-		job.Spec.Template.Spec.NodeName = nodeName
+	if jobParams.Port != nil {
+		job.Spec.Template.Spec.Containers[0].Ports = []corev1.ContainerPort{*jobParams.Port}
 	}
 
-	if nodeSelector != nil {
-		job.Spec.Template.Spec.NodeSelector = nodeSelector
+	if jobParams.ReadinessProbe != nil {
+		job.Spec.Template.Spec.Containers[0].ReadinessProbe = jobParams.ReadinessProbe
+	}
+
+	if jobParams.Affinity != nil {
+		job.Spec.Template.Spec.Affinity = jobParams.Affinity
+	}
+
+	if len(jobParams.NodeName) > 0 {
+		job.Spec.Template.Spec.NodeName = jobParams.Name
+	}
+
+	if jobParams.NodeSelector != nil {
+		job.Spec.Template.Spec.NodeSelector = jobParams.NodeSelector
 	}
 
 	// 创建job

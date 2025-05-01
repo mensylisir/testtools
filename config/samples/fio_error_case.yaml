@@ -24,11 +24,3 @@ spec:
   runtime: 5
   # 直接 IO (绕过操作系统缓存)
   directIO: true
-  # 测试后是否删除测试文件
-  deleteTestFile: true
-  # 测试报告关联名称
-  testReportName: "error-test-report"
-  # 重试次数
-  retries: 2
-  # 重试间隔(秒)
-  retryInterval: 30 

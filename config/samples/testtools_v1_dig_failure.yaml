@@ -22,4 +22,4 @@ spec:
   maxRetries: 2
 
 
-  image: "registry.dev.rdev.tech:18093/testtools-dig:v3"
+  image: "192.168.31.34:18093/testtools-dig:v3"

@@ -141,14 +141,21 @@ func (r *IperfReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	serverPodIP, err = r.getServerPodIP(ctx, &iperf, serverJobName)
 	if err != nil {
-		logger.Error(err, "Failed to retrive server pod ip: %v", "name", iperf.Name, "namespace", req.Namespace, "name", req.Name, "serverJobName", serverJobName)
+		logger.Info("Wait to retrive server pod ip", "name", iperf.Name, "namespace", req.Namespace, "name", req.Name, "serverJobName", serverJobName)
 		return ctrl.Result{RequeueAfter: time.Second * 30}, err
 	}
 	if len(serverPodIP) == 0 {
-		logger.Error(err, "Failed to retrive server pod ip: %v", "name", iperf.Name, "namespace", req.Namespace, "name", req.Name, "serverJobName", serverJobName)
+		logger.Info("Wait to retrive server pod ip", "name", iperf.Name, "namespace", req.Namespace, "name", req.Name, "serverJobName", serverJobName)
 		return ctrl.Result{RequeueAfter: time.Second * 30}, err
 	}
 
+	iperf.Spec.Host = serverPodIP
+
+	//ready := r.isServerReady(ctx, &iperf, serverJobName)
+	//if !ready {
+	//	logger.Info("Wait to check server is running", "name", iperf.Name, "namespace", req.Namespace, "name", req.Name, "serverJobName", serverJobName)
+	//	return ctrl.Result{RequeueAfter: time.Second * 30}, err
+	//}
 	var serverJob batchv1.Job
 	if err := r.Client.Get(ctx, types.NamespacedName{Namespace: req.Namespace, Name: serverJobName}, &serverJob); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -213,6 +220,7 @@ func (r *IperfReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				})
 			} else {
 				clientOutput, err := utils.ParseIperfOutput(clientJobOutput, iperfCopy)
+				logger.Info(fmt.Sprintf("%v", clientOutput))
 				if err != nil {
 					logger.Error(err, "Failed to parse iperf client output", "namespace", req.Namespace, "name", req.Name)
 					iperfCopy.Status.Status = "Failed"
@@ -429,7 +437,7 @@ func (r *IperfReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{RequeueAfter: time.Second * time.Duration(interval)}, nil
 	}
 
-	logger.Info("Skoop test finished; no further execution will be scheduled.",
+	logger.Info("Iperf test finished; no further execution will be scheduled.",
 		"skoop", iperf.Name,
 		"namespace", iperf.Namespace)
 	return ctrl.Result{}, nil
@@ -475,4 +483,24 @@ func (r *IperfReconciler) getServerPodIP(ctx context.Context, iperf *testtoolsv1
 	}
 
 	return "", fmt.Errorf("没有找到运行中的服务器Pod")
+}
+
+func (r *IperfReconciler) isServerReady(ctx context.Context, iperf *testtoolsv1.Iperf, serverJobName string) bool {
+	clientJobOutput, err := utils.GetJobResults(ctx, r.Client, iperf.Namespace, serverJobName)
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(clientJobOutput, "\n")
+	for _, line := range lines {
+		// 忽略空行
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		// 检测客户端/服务器信息
+		if strings.Contains(line, "Server listening on") {
+			return true
+		}
+	}
+	return false
 }

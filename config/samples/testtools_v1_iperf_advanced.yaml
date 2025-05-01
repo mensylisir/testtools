@@ -19,7 +19,6 @@ spec:
   bidirectional: true
   zerocopy: true
   bandwidth: "100M"
-  schedule: "1800"
   maxRetries: 2
   image: "192.168.31.34:18093/testtools-iperf:v3"
   nodeSelector:

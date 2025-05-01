@@ -83,6 +83,9 @@ spec:
                 maximum: 3600
                 minimum: 1
                 type: integer
+              enableAntiAffinity:
+                description: EnableAntiAffinity
+                type: boolean
               host:
                 description: 目标主机，必填
                 type: string

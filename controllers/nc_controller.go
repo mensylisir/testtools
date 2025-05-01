@@ -240,6 +240,8 @@ func (r *NcReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 						ncCopy.Status.SuccessCount++
 					}
 					ncCopy.Status.LastResult = jobOutput
+					nc.Status.ConnectionSuccess = ncOutput.ConnectionSuccess
+					nc.Status.ConnectionLatency = fmt.Sprintf("%s", ncOutput.ConnectionLatency)
 
 					// 记录详细数据
 					logger.Info("Nc测试成功完成",
@@ -264,6 +266,8 @@ func (r *NcReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Re
 						ncCopy.Status.FailureCount++
 					}
 					ncCopy.Status.LastResult = jobOutput
+					nc.Status.ConnectionSuccess = ncOutput.ConnectionSuccess
+					nc.Status.ConnectionLatency = fmt.Sprintf("%s", ncOutput.ConnectionLatency)
 
 					// 记录详细数据
 					logger.Info("Nc test complete failed",

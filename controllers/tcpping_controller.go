@@ -167,6 +167,7 @@ func (r *TcpPingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			logger.Info("Job completed successfully", "namespace", req.Namespace, "name", req.Name, "job", jobName)
 
 			jobOutput, err := utils.GetJobResults(ctx, r.Client, tcpping.Namespace, jobName)
+			//logger.Info(jobOutput)
 			if err != nil {
 				logger.Error(err, "Failed to get tcpping job results")
 				tcppingCopy.Status.Status = "Failed"
@@ -186,6 +187,8 @@ func (r *TcpPingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				})
 			} else {
 				tcppingOutput := utils.ParseTcpPingOutput(jobOutput, tcppingCopy)
+				//out := fmt.Sprintf("%v", tcppingOutput)
+				//logger.Info(out)
 				if tcppingOutput.Status == "SUCCESS" {
 					tcppingCopy.Status.Status = "Succeeded"
 					if tcppingCopy.Spec.Schedule == "" {
@@ -194,6 +197,13 @@ func (r *TcpPingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 						tcppingCopy.Status.SuccessCount++
 					}
 					tcppingCopy.Status.LastResult = jobOutput
+					tcppingCopy.Status.Stats.AvgLatency = fmt.Sprintf("%s", tcppingOutput.AvgLatency)
+					tcppingCopy.Status.Stats.MinLatency = fmt.Sprintf("%s", tcppingOutput.MinLatency)
+					tcppingCopy.Status.Stats.MaxLatency = fmt.Sprintf("%s", tcppingOutput.MaxLatency)
+					tcppingCopy.Status.Stats.PacketLoss = fmt.Sprintf("%s", tcppingOutput.PacketLoss)
+					tcppingCopy.Status.Stats.Received = tcppingOutput.Received
+					tcppingCopy.Status.Stats.StdDevLatency = fmt.Sprintf("%s", tcppingOutput.StdDevLatency)
+					tcppingCopy.Status.Stats.Transmitted = tcppingOutput.Transmitted
 
 					if tcppingCopy.Status.TestReportName == "" {
 						tcppingCopy.Status.TestReportName = utils.GenerateTestReportName("Tcpping", tcpping.Name)
@@ -256,6 +266,7 @@ func (r *TcpPingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				"failed", job.Status.Failed, "backoffLimit", job.Spec.BackoffLimit)
 
 			jobOutput, err := utils.GetJobResults(ctx, r.Client, tcpping.Namespace, jobName)
+			//logger.Info(jobOutput)
 			if err != nil {
 				logger.Error(err, "Failed to get tcpping job results")
 				tcppingCopy.Status.Status = "Failed"
@@ -275,6 +286,8 @@ func (r *TcpPingReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				})
 			} else {
 				tcppingOutput := utils.ParseTcpPingOutput(jobOutput, tcppingCopy)
+				//out := fmt.Sprintf("%v", tcppingOutput)
+				//logger.Info(out)
 				tcppingCopy.Status.Status = "Failed"
 				if tcppingCopy.Spec.Schedule == "" {
 					tcppingCopy.Status.FailureCount = 1

@@ -116,6 +116,10 @@ type IperfSpec struct {
 	// NodeName indicates in which node this pod is scheduled.
 	// +optional
 	NodeName string `json:"nodeName,omitempty" protobuf:"bytes,10,opt,name=nodeName"`
+
+	// EnableAntiAffinity
+	// +optional
+	EnableAntiAffinity bool `json:"enableAntiAffinity,omitempty"`
 }
 
 // IperfStats 定义了Iperf测试的性能统计信息
