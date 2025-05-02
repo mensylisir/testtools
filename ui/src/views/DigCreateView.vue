@@ -1,4 +1,4 @@
-<template>
+ <template>
   <div class="dig-create">
     <div class="header-actions">
       <h1>创建DNS查询</h1>

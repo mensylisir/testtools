@@ -13,6 +13,9 @@ A Kubernetes operator for managing network and storage performance tests in Kube
   - [Ping Tests](#ping-tests)
   - [Dig Tests](#dig-tests)
   - [FIO Tests](#fio-tests)
+  - [NC Tests](#nc-tests)
+  - [Tcpping Tests](#tcpping-tests)
+  - [Iperf Tests](#iperf-tests)
 - [Advanced Features](#advanced-features)
 - [Development](#development)
 - [Contributing](#contributing)
@@ -236,15 +239,17 @@ kubectl get fio example-fio-test -o yaml
 
 
 
-### TestReport自动创建
+### TestReport autogenerate
 
-使用本控制器的一个重要优势是TestReport会自动创建。用户只需创建Fio、Ping或Dig资源，控制器会：
+One major advantage of using this controller is that a TestReport is created automatically. Users only need to create a Fio, Ping, Dig, Nc, Tcpping or Iperf resource, and the controller will:
 
-1. 自动为每个测试资源创建对应的TestReport资源
-2. 自动收集测试结果并更新报告
-3. 自动维护测试历史和统计数据
+Automatically create a corresponding TestReport resource for each test resource
 
-例如，创建一个Fio资源后：
+Automatically collect test results and update the report
+
+Automatically maintain test history and statistical data
+
+For example, after creating a Fio resource:
 
 ```yaml
 apiVersion: testtools.xiaoming.com/v1
@@ -254,10 +259,10 @@ metadata:
 spec:
   filePath: "/data/test-file"
   readWrite: "randread"
-  # 其他配置...
+  # other configuration
 ```
 
-控制器会自动创建名为"fio-my-fio-test-report"的TestReport资源。无需手动创建或关联TestReport资源，整个过程完全自动化。
+The controller will automatically create a TestReport resource named fio-my-fio-test-report. There is no need to manually create or associate a TestReport—the entire process is fully automated.
 
 ### Test Report Retrieval
 
