@@ -17,7 +17,6 @@ A Kubernetes operator for managing network and storage performance tests in Kube
 - [Development](#development)
 - [Contributing](#contributing)
 - [License](#license)
-- [最近更新](#最近更新)
 
 ## Overview
 
@@ -30,6 +29,9 @@ This controller provides the following core capabilities:
 1. **Network Tests**:
    - **Ping Tests**: Measure connectivity and latency to specified endpoints
    - **Dig Tests**: Validate DNS resolution and performance
+   - **Nc Tests**
+   - **Iperf Tests**
+   - **Tcpping tests**
 
 2. **Storage Tests**:
    - **FIO Tests**: Benchmark disk I/O performance with flexible configurations
@@ -88,7 +90,6 @@ metadata:
 spec:
   host: "8.8.8.8"
   count: 5
-  testReportName: "ping-report"
 ```
 
 Apply the file:
@@ -113,7 +114,6 @@ metadata:
 spec:
   host: "kubernetes.default.svc.cluster.local"
   type: "A"
-  testReportName: "dig-report"
 ```
 
 Apply the file:
@@ -124,6 +124,86 @@ kubectl apply -f dig-test.yaml
 Check the results:
 ```bash
 kubectl get dig example-dig-test -o yaml
+```
+
+### nc Tests
+
+Create a YAML file for a DNS dig test:
+
+```yaml
+apiVersion: testtools.xiaoming.com/v1
+kind: Nc
+metadata:
+   name: nc-sample-simple
+spec:
+   host: "kubernetes.io"
+   port: 443
+   timeout: 5
+   verbose: true
+```
+
+Apply the file:
+```bash
+kubectl apply -f nc-sample-simple.yaml
+```
+
+Check the results:
+```bash
+kubectl get dig nc-sample-simple -o yaml
+```
+
+
+### tcpping Tests
+
+Create a YAML file for a DNS dig test:
+
+```yaml
+apiVersion: testtools.xiaoming.com/v1
+kind: TcpPing
+metadata:
+   name: tcpping-sample-simple
+spec:
+   host: "kubernetes.io"
+   port: 443
+   count: 5
+   timeout: 3
+   interval: 1
+```
+
+Apply the file:
+```bash
+kubectl apply -f tcpping-sample-simple.yaml
+```
+
+Check the results:
+```bash
+kubectl get dig tcpping-sample-simple -o yaml
+```
+
+### iperf Tests
+
+Create a YAML file for a DNS dig test:
+
+```yaml
+apiVersion: testtools.xiaoming.com/v1
+kind: Iperf
+metadata:
+   name: iperf-sample-simple
+spec:
+   port: 5201
+   duration: 10
+   protocol: "tcp"
+   verbose: true
+```
+
+Apply the file:
+```bash
+kubectl apply -f iperf-sample-simple.yaml
+```
+
+Check the results:
+```bash
+kubectl get dig iperf-sample-simple -o yaml
 ```
 
 ### FIO Tests
@@ -142,8 +222,6 @@ spec:
   ioDepth: 32
   size: "1g"
   ioEngine: "libaio"
-  numJobs: 4
-  testReportName: "fio-report"
 ```
 
 Apply the file:
@@ -156,41 +234,7 @@ Check the results:
 kubectl get fio example-fio-test -o yaml
 ```
 
-## Advanced Features
 
-### Scheduled Tests
-
-Add a schedule to run tests periodically:
-
-```yaml
-apiVersion: testtools.xiaoming.com/v1
-kind: Fio
-metadata:
-  name: scheduled-fio-test
-spec:
-  # ... other configurations
-  schedule: "0 * * * *"  # Run every hour
-```
-
-### Resource Management
-
-Control resource usage for test pods:
-
-```yaml
-apiVersion: testtools.xiaoming.com/v1
-kind: Fio
-metadata:
-  name: fio-with-resources
-spec:
-  # ... other configurations
-  resources:
-    requests:
-      cpu: "500m"
-      memory: "256Mi"
-    limits:
-      cpu: "2"
-      memory: "1Gi"
-```
 
 ### TestReport自动创建
 
@@ -293,23 +337,3 @@ This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENS
 ## Contact
 
 For issues or suggestions, please open an issue in the GitHub repository.
-
-## 最近更新
-
-### 2023-08-15 
-修复了多个控制器的问题，优化了测试报告功能:
-
-1. **TestReport控制器优化**:
-   - 修改了TestReport的结果管理逻辑，现在只保存最新结果而非历史数据累积
-   - 增强了日志输出，便于调试和问题排查
-   - 改进了FIO结果的收集机制，确保测试数据能正确存储
-
-2. **FIO控制器改进**:
-   - 在执行FIO测试后自动设置TestReportName，确保能生成相关报告
-   - 修复了FIO测试与TestReport关联的问题
-
-3. **错误处理增强**:
-   - 添加了更详细的错误日志
-   - 在关键点添加状态检查和重试机制
-
-这些更新确保了控制器能够正确执行测试并生成准确的测试报告，解决了之前TestReport累积历史数据和FIO报告未正确生成的问题。 
