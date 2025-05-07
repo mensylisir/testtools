@@ -1,264 +1,352 @@
 <template>
-  <div class="ping-create-view">
-    <h1>创建连通性测试</h1>
-    
-    <div v-if="loading" class="loading-container">
-      <div class="spinner"></div>
-      <p>创建中...</p>
+  <div class="ping-create">
+    <div class="header-actions">
+      <h1>创建连通性测试</h1>
+      <router-link to="/ping" class="btn btn-secondary">返回查询列表</router-link>
     </div>
 
-    <div v-else-if="success" class="success-container card">
-      <h3>创建成功!</h3>
-      <p>连通性测试 <strong>{{ form.name }}</strong> 已成功创建</p>
+    <div class="card">
+      <form @submit.prevent="createPing">
+        <div class="form-group">
+          <label for="name">名称 *</label>
+          <input
+              type="text"
+              id="name"
+              v-model="pingForm.name"
+              class="form-control"
+              required
+              placeholder="输入一个唯一的名称,例如:example-com"
+          />
+          <small>只能使用小写字母、数字和连字符，且必须以字母开头</small>
+        </div>
+        <div class="form-group">
+          <label for="target">目标主机/IP地址 *</label>
+          <input
+              type="text"
+              id="target"
+              v-model="pingForm.spec.host"
+              class="form-control"
+              required
+              placeholder="输入要测试的主机名、域名或IP地址"
+          />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="count">请求次数</label>
+            <input
+                type="number"
+                id="count"
+                v-model.number="pingForm.spec.count"
+                min="1"
+                max="100"
+                class="form-control"
+            />
+            <small>发送的ICMP请求数量 (1-100)</small>
+          </div>
+
+          <div class="form-group">
+            <label for="interval">间隔</label>
+            <input
+                type="number"
+                id="interval"
+                v-model.number="pingForm.spec.interval"
+                min="0.1"
+                step="0.1"
+                class="form-control"
+            />
+            <small>每次请求的间隔时间 (秒)</small>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="timeout">超时</label>
+            <input
+                type="number"
+                id="timeout"
+                v-model.number="pingForm.spec.timeout"
+                min="1"
+                max="60"
+                class="form-control"
+            />
+            <small>单个请求的超时时间 (秒)</small>
+          </div>
+
+          <div class="form-group">
+            <label for="size">数据包大小</label>
+            <input
+                type="number"
+                id="size"
+                v-model.number="pingForm.spec.packetSize"
+                min="16"
+                max="65507"
+                class="form-control"
+            />
+            <small>ICMP数据包大小 (16-65507 字节)</small>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="nodeName">节点名称</label>
+            <input
+                type="text"
+                id="nodeName"
+                v-model="pingForm.spec.nodeName"
+                class="form-control"
+                placeholder="可选，指定在哪个节点上运行"
+            />
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button
+              type="button"
+              @click="resetForm"
+              class="btn btn-secondary"
+              :disabled="creating"
+          >
+            重置
+          </button>
+          <button
+              type="submit"
+              class="btn btn-primary"
+              :disabled="creating || !isFormValid"
+          >
+            <span v-if="creating">
+              <div class="spinner-small"></div>
+              创建中...
+            </span>
+            <span v-else>创建连通性测试</span>
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <div v-if="successMessage" class="success-message card">
+      <h3>创建成功</h3>
+      <p> {{ successMessage }}</p>
       <div class="success-actions">
-        <router-link :to="`/ping/${form.name}`" class="btn btn-primary">
-          查看详情
-        </router-link>
-        <router-link to="/ping" class="btn">
-          返回列表
-        </router-link>
+        <router-link :to="'/ping/' + createdPingName" class="btn btn-primary">查看详情</router-link>
+        <router-link to="/ping" class="btn btn-secondary">返回列表</router-link>
       </div>
     </div>
 
-    <div v-else-if="error" class="error-container card">
+    <div v-if="error" class="error-message card">
       <h3>创建失败</h3>
-      <p class="error-message">{{ error }}</p>
-      <button @click="error = null" class="btn">返回编辑</button>
+      <p>{{ error }}</p>
+      <button @click="error = null" class="btn btn-secondary">关闭</button>
     </div>
-
-    <form v-else @submit.prevent="submitForm" class="ping-form card">
-      <div class="form-group">
-        <label for="name">名称 <span class="required">*</span></label>
-        <input 
-          type="text" 
-          id="name" 
-          v-model="form.name" 
-          placeholder="输入测试名称" 
-          required
-          :class="{ 'input-error': errors.name }"
-        />
-        <div v-if="errors.name" class="error-help">{{ errors.name }}</div>
-        <div class="form-help">名称只能包含小写字母、数字和'-'，且必须以字母或数字开头和结尾</div>
-      </div>
-
-      <div class="form-group">
-        <label for="target">目标主机/IP地址 <span class="required">*</span></label>
-        <input 
-          type="text" 
-          id="target" 
-          v-model="form.spec.host"
-          placeholder="输入主机名或IP地址" 
-          required
-          :class="{ 'input-error': errors.host }"
-        />
-        <div v-if="errors.target" class="error-help">{{ errors.host }}</div>
-      </div>
-
-      <div class="form-group">
-        <label for="count">请求次数</label>
-        <input 
-          type="number" 
-          id="count" 
-          v-model.number="form.spec.count" 
-          min="1" 
-          max="100"
-        />
-        <div class="form-help">发送的ICMP请求数量 (1-100)</div>
-      </div>
-
-      <div class="form-group">
-        <label for="interval">间隔</label>
-        <input 
-          type="number" 
-          id="interval" 
-          v-model.number="form.spec.interval" 
-          min="0.1" 
-          step="0.1"
-        />
-        <div class="form-help">每次请求的间隔时间 (秒)</div>
-      </div>
-
-      <div class="form-group">
-        <label for="timeout">超时</label>
-        <input 
-          type="number" 
-          id="timeout" 
-          v-model.number="form.spec.timeout" 
-          min="1" 
-          max="60"
-        />
-        <div class="form-help">单个请求的超时时间 (秒)</div>
-      </div>
-
-      <div class="form-group">
-        <label for="size">数据包大小</label>
-        <input 
-          type="number" 
-          id="size" 
-          v-model.number="form.spec.packetSize"
-          min="16" 
-          max="65507"
-        />
-        <div class="form-help">ICMP数据包大小 (16-65507 字节)</div>
-      </div>
-
-      <div class="form-actions">
-        <router-link to="/ping" class="btn">取消</router-link>
-        <button type="submit" class="btn btn-primary">创建</button>
-      </div>
-    </form>
   </div>
 </template>
 
 <script>
-import { ref, reactive } from 'vue'
+import {ref, reactive, computed} from 'vue'
 import { useRouter } from 'vue-router'
 import pingApi from '../api/ping.js'
 
 export default {
   setup() {
     const router = useRouter()
-    const loading = ref(false)
-    const success = ref(false)
+    const creating = ref(false)
     const error = ref(null)
-    const errors = reactive({})
+    const successMessage = ref(null)
+    const createdPingName = ref('')
 
     // 表单数据
-    const form = reactive({
+    const pingForm = reactive({
       name: '',
       spec: {
         target: '',
         count: 5,
         interval: 1,
         timeout: 5,
-        size: 56
+        size: 56,
+        nodeName: ''
       }
     })
 
-    // 验证表单
-    const validateForm = () => {
-      const newErrors = {}
-      
-      // 名称验证 (符合Kubernetes资源命名规则)
-      if (!form.name) {
-        newErrors.name = '名称不能为空'
-      } else if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(form.name)) {
-        newErrors.name = '名称格式不正确'
-      }
+    const isFormValid = computed( () => {
 
-      // 目标验证
-      if (!form.spec.host) {
-        newErrors.host = '目标地址不能为空'
-      }
+      const namePattern = /^[a-z][a-z0-9-]*$/
+      const isNameValid = namePattern.test(pingForm.name)
 
-      // 将验证结果设置到errors对象中
-      Object.keys(errors).forEach(key => delete errors[key])
-      Object.keys(newErrors).forEach(key => {
-        errors[key] = newErrors[key]
-      })
+      const target = pingForm.spec.target.trim();
+      const domainRegex = /^(?!:\/\/)([a-zA-Z0-9-_]+\.)*[a-zA-Z0-9][a-zA-Z0-9-_]+\.[a-zA-Z]{2,}$/;
+      const ipv4Regex = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
+      const ipv6Regex = /^(([0-9a-fA-F]{1,4}):){7}([0-9a-fA-F]{1,4})$/;
+      const isDomainValid = !!target && (domainRegex.test(target) || ipv4Regex.test(target) || ipv6Regex.test(target));
 
-      return Object.keys(newErrors).length === 0
-    }
+      return isNameValid && isDomainValid
+    });
 
-    // 提交表单
-    const submitForm = async () => {
-      if (!validateForm()) {
-        return
-      }
 
-      loading.value = true
+    const createPing = async () => {
+      if (!isFormValid.value) return
+      creating.value = true
       error.value = null
+      successMessage.value = null
 
       try {
-        await pingApi.createPing(form)
-        success.value = true
+        const cleanedSpec = { ...pingForm.spec }
+        Object.keys(cleanedSpec).forEach((key) => {
+          if (cleanedSpec[key] === '' || cleanedSpec[key] === null) {
+            delete cleanedSpec[key]
+          }
+        })
+
+        const response = await pingApi.createPing({
+          name: pingForm.name,
+          spec: cleanedSpec,
+        })
+
+        createdPingName.value = response.metadata.name
+        successMessage.value = `成功创建Ping测试: ${response.metadata.name}`
+        resetForm()
       } catch (err) {
-        error.value = '创建连通性测试失败: ' + (err.message || '未知错误')
+        error.value = '创建失败：' + (err.message || '未知错误')
         console.error(err)
       } finally {
-        loading.value = false
+        creating.value = false
       }
+    }
+
+    const resetForm = () => {
+      pingForm.name = ''
+      pingForm.spec.target = ''
+      pingForm.spec.count = ''
+      pingForm.spec.interval = ''
+      pingForm.spec.timeout = ''
+      pingForm.spec.size = ''
+      pingForm.spec.nodeName = ''
     }
 
     return {
-      form,
-      loading,
-      success,
+      pingForm,
+      creating,
       error,
-      errors,
-      submitForm
+      successMessage,
+      createdPingName,
+      isFormValid,
+      createPing,
+      resetForm
     }
   }
 }
 </script>
 
 <style scoped>
-.ping-form {
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 1.5rem;
+.header-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  color: var(--text-primary);
+}
+
+.header-actions h1 {
+  font-size: 1.8rem;
+  margin: 0;
 }
 
 .form-group {
   margin-bottom: 1.5rem;
 }
 
+.form-row {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 0;
+  flex-wrap: wrap;
+}
+
+.form-row .form-group {
+  flex: 1;
+  min-width: 250px;
+}
+
 label {
   display: block;
   margin-bottom: 0.5rem;
   font-weight: 500;
+  color: var(--text-primary);
 }
 
-.required {
-  color: #d32f2f;
-}
-
-input, select, textarea {
-  width: 100%;
-  padding: 0.5rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 1rem;
-}
-
-input.input-error, select.input-error, textarea.input-error {
-  border-color: #d32f2f;
-}
-
-.form-help {
+small {
+  display: block;
   margin-top: 0.25rem;
+  color: var(--text-secondary);
   font-size: 0.8rem;
-  color: #6c757d;
 }
 
-.error-help {
-  margin-top: 0.25rem;
-  font-size: 0.8rem;
-  color: #d32f2f;
+.checkbox-group {
+  margin-top: 1rem;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.checkbox-label input {
+  margin-right: 0.5rem;
 }
 
 .form-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 0.5rem;
+  gap: 1rem;
   margin-top: 2rem;
 }
 
-.loading-container, .success-container, .error-container {
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
-
-.loading-container .spinner {
-  margin-bottom: 1rem;
-}
-
-.success-actions, .error-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: center;
+.success-message, .error-message {
   margin-top: 1.5rem;
+  padding: 1.5rem;
+}
+
+.success-message {
+  background-color: #e8f5e9;
+  border-left: 4px solid var(--success-color);
+  color: var(--text-primary);
+}
+
+.success-message h3 {
+  margin-top: 0;
+  color: var(--success-color);
+}
+
+.error-message {
+  background-color: #ffebee;
+  border-left: 4px solid var(--danger-color);
+  color: var(--text-primary);
+}
+
+.error-message h3 {
+  margin-top: 0;
+  color: var(--danger-color);
+}
+
+.success-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.spinner-small {
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid var(--primary-color);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: middle;
+  animation: spin 1s linear infinite;
+}
+
+.options-row {
+  gap: 2rem;
 }
 </style> 

@@ -6,8 +6,6 @@
     </div>
 
     <div class="tools-section">
-      <h2>可用工具</h2>
-      
       <div class="tools-grid">
         <div class="tool-card card">
           <h3>DNS查询</h3>
@@ -32,42 +30,87 @@
 </template>
 
 <style scoped>
-.hero {
-  padding: 2rem;
+
+.card {
+  background-color: var(--card-color);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06), 0 4px 10px rgba(0, 0, 0, 0.08);
+  padding: 1.5em;
+  border: 1px solid #e9ecef;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.15);
+}
+
+
+.hero.card {
+  padding: 3rem 2rem;
   text-align: center;
-  margin-bottom: 2rem;
+  margin-bottom: 1.5rem;
   background-color: var(--primary-color);
   color: white;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.06), 0 6px 15px rgba(0, 0, 0, 0.2);
+  border: none;
 }
 
 .hero h1 {
-  font-size: 2rem;
+  font-size: 2.8rem;
   margin-bottom: 1rem;
+  color: inherit;
+}
+
+.hero p {
+  font-size: 1.2rem;
+  margin-bottom: 0;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.tools-section {
+  margin-bottom: 3rem;
 }
 
 .tools-section h2 {
-  margin-bottom: 1.5rem;
+  font-size: 2rem;
+  margin-bottom: 2rem;
+  color: var(--text-primary);
+  text-align: center;
 }
 
 .tools-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
   gap: 1.5rem;
 }
 
-.tool-card {
+.tool-card.card {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
 .tool-card h3 {
-  margin-bottom: 1rem;
-  color: var(--primary-color);
+  font-size: 1.4rem;
+  margin-top: 0;
+  margin-bottom: 0.8rem;
+  color: var(--primary-color-dark);
 }
 
 .tool-card p {
+  font-size: 1rem;
   margin-bottom: 1.5rem;
   flex-grow: 1;
+  line-height: 1.6;
+  color: var(--text-secondary);
 }
+
+.tool-card .btn {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: auto;
+}
+
 </style> 

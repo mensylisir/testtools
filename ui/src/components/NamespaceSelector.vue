@@ -1,6 +1,5 @@
 <template>
   <div class="namespace-selector">
-<!--    <div class="selector-label">命名空间:</div>-->
     <div class="selector-dropdown" v-click-outside="hideNamespaceOptions">
       <div class="selected-option" @click="toggleNamespaceOptions">
         <span>{{ currentNamespace }}</span>
@@ -29,7 +28,6 @@
 import { ref, onMounted } from 'vue'
 import namespacesApi from '../api/namespaces.js'
 
-// 点击外部关闭下拉菜单指令
 const clickOutside = {
   beforeMount(el, binding) {
     el._clickOutside = (event) => {
@@ -117,34 +115,44 @@ export default {
 .namespace-selector {
   display: flex;
   align-items: center;
+  background-color: var(--background-color);
+  color: var(--text-primary);
 }
 
 .selector-label {
   margin-right: 0.5rem;
-  color: white;
+  background-color: var(--background-color);
+  color: var(--text-primary);
   font-size: 0.9rem;
 }
 
 .selector-dropdown {
   position: relative;
   min-width: 150px;
+  z-index: 100;
 }
 
 .selected-option {
   padding: 0.25rem 0.5rem;
-  background-color: rgba(255, 255, 255, 0.2);
   border-radius: 4px;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: white;
+  background-color: var(--background-color);
+  color: var(--text-primary);
   user-select: none;
 }
 
 .dropdown-arrow {
   margin-left: 0.5rem;
   font-size: 0.8rem;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.selector-dropdown .selected-option[aria-expanded="true"] .dropdown-arrow {
+  transform: rotate(180deg);
 }
 
 .options-container {
@@ -153,27 +161,30 @@ export default {
   left: 0;
   right: 0;
   margin-top: 0.25rem;
-  background-color: white;
+  background-color: var(--background-color);
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   z-index: 1000;
   max-height: 250px;
   overflow-y: auto;
+  border: 1px solid #e9ecef;
 }
 
 .option {
   padding: 0.5rem;
-  color: black;
+  color: var(--text-primary);
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, color 0.2s;
 }
 
 .option:hover {
-  background-color: #f5f5f5;
+  background-color: var(--primary-color-light);
+  color: var(--text-primary);
 }
 
 .option.active {
-  background-color: #e6f7ff;
+  background-color: var(--primary-color-light);
+  color: #007bff;
   font-weight: 500;
 }
 
@@ -189,4 +200,10 @@ export default {
 .option.error {
   color: #d32f2f;
 }
+
+.selected-option span {
+  font-weight: normal;
+  color: #343a40;
+}
+
 </style>

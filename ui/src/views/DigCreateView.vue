@@ -308,6 +308,12 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.5rem;
+  color: var(--text-primary);
+}
+
+.header-actions h1 {
+  font-size: 1.8rem;
+  margin: 0;
 }
 
 .form-group {
@@ -316,18 +322,21 @@ export default {
 
 .form-row {
   display: flex;
-  gap: 1rem;
+  gap: 2rem;
   margin-bottom: 0;
+  flex-wrap: wrap;
 }
 
 .form-row .form-group {
   flex: 1;
+  min-width: 250px;
 }
 
 label {
   display: block;
   margin-bottom: 0.5rem;
   font-weight: 500;
+  color: var(--text-primary);
 }
 
 small {
@@ -366,11 +375,23 @@ small {
 .success-message {
   background-color: #e8f5e9;
   border-left: 4px solid var(--success-color);
+  color: var(--text-primary);
+}
+
+.success-message h3 {
+  margin-top: 0;
+  color: var(--success-color);
 }
 
 .error-message {
   background-color: #ffebee;
   border-left: 4px solid var(--danger-color);
+  color: var(--text-primary);
+}
+
+.error-message h3 {
+  margin-top: 0;
+  color: var(--danger-color);
 }
 
 .success-actions {
@@ -381,12 +402,13 @@ small {
 
 .spinner-small {
   border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid var(--primary-color);
   border-radius: 50%;
-  border-top: 2px solid white;
   width: 16px;
   height: 16px;
   display: inline-block;
   margin-right: 8px;
+  vertical-align: middle;
   animation: spin 1s linear infinite;
 }
 

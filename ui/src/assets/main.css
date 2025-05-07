@@ -1,14 +1,21 @@
 :root {
-  --primary-color: #4CAF50;
+  --primary-color: #2196F3;
   --secondary-color: #03A9F4;
-  --accent-color: #FF5722;
+  --accent-color: #FF9800;
+
   --danger-color: #F44336;
   --warning-color: #FFC107;
-  --success-color: #8BC34A;
+  --success-color: #4CAF50;
+
   --text-primary: #212121;
   --text-secondary: #757575;
   --background-color: #f5f5f5;
   --card-color: #ffffff;
+
+   --primary-color-light: #BBDEFB;
+   --primary-color-dark: #1976D2;
+   --secondary-color-light: #B3E5FC;
+   --secondary-color-dark: #0288D1;
 }
 
 body {
@@ -16,20 +23,14 @@ body {
   color: var(--text-primary);
   line-height: 1.6;
   font-family: 'Arial', sans-serif;
-}
-
-.container {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 15px;
+  overflow-y: hidden;
 }
 
 .card {
   background-color: var(--card-color);
   border-radius: 4px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-  padding: 20px;
+  padding: 10px 30px 10px 10px;
   margin-bottom: 20px;
 }
 
@@ -83,7 +84,7 @@ body {
 }
 
 .form-group {
-  margin-bottom: 15px;
+  margin: 15px;
 }
 
 .form-control {

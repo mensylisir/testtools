@@ -402,8 +402,8 @@ export default {
       if (!status) return 'status-pending'
 
       status = status.toLowerCase()
-      if (status.includes('success') || status === 'completed') return 'status-success'
-      if (status.includes('fail') || status.includes('error')) return 'status-error'
+      if (status.includes('success') || status.includes('succeeded') || status === 'completed') return 'status-success'
+      if (status.includes('fail') || status.includes('failed') || status.includes('error')) return 'status-error'
       if (status.includes('progress') || status === 'running') return 'status-running'
 
       return 'status-pending'

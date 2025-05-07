@@ -152,8 +152,8 @@ export default {
       if (!status) return 'status-pending'
       
       status = status.toLowerCase()
-      if (status.includes('success') || status === 'completed') return 'status-success'
-      if (status.includes('fail') || status.includes('error')) return 'status-error'
+      if (status.includes('success') || status.includes('succeeded') || status === 'completed') return 'status-success'
+      if (status.includes('fail') || status.includes('failed') || status.includes('error')) return 'status-error'
       if (status.includes('progress') || status === 'running') return 'status-running'
       
       return 'status-pending'
@@ -197,6 +197,12 @@ export default {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.5rem;
+  color: var(--text-primary);
+}
+
+.header-actions h1 {
+  font-size: 1.8rem;
+  margin: 0;
 }
 
 .loading-container, .error-container, .empty-container {
@@ -214,6 +220,7 @@ export default {
 
 .filter-container {
   margin-bottom: 1rem;
+  padding: 10px 20px 10px 0px;
 }
 
 .digs-table-container {
