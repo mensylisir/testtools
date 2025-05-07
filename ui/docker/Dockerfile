@@ -7,10 +7,10 @@ COPY . .
 RUN npm run build
 
 # 第二阶段：准备 Node.js 代理模块
-FROM node:18-alpine
+FROM node:18-alpine as server-builder
 WORKDIR /app
 COPY --from=builder /app/dist ./dist
-COPY server ./server
+COPY src/proxy ./src/proxy
 COPY package*.json ./
 RUN npm install --production
 
@@ -20,7 +20,7 @@ FROM nginx:alpine
 # 安装 Node.js 和 supervisord
 RUN apk add --no-cache nodejs npm supervisor
 
-COPY --from=1 /app /app
+COPY --from=server-builder /app /app
 COPY nginx.conf /etc/nginx/nginx.conf
 
 # 配置 supervisord

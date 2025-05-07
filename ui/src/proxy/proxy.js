@@ -114,7 +114,7 @@ app.use((req, res) => {
 });
 
 // 启动服务器
-app.listen(port, () => {
+app.listen(port, '0.0.0.0',() => {
   console.log(`Proxy server is running on port ${port}`);
 });
 
