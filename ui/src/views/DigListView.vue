@@ -41,7 +41,6 @@
               <th>状态</th>
               <th>查询次数</th>
               <th>成功/失败</th>
-              <th>平均响应时间</th>
               <th>最后执行时间</th>
               <th>操作</th>
             </tr>
@@ -58,7 +57,6 @@
               </td>
               <td>{{ dig.status.queryCount || 0 }}</td>
               <td>{{ (dig.status.successCount || 0) + '/' + (dig.status.failureCount || 0) }}</td>
-              <td>{{ dig.status.averageResponseTime || '-' }}</td>
               <td>{{ formatDate(dig.status.lastExecutionTime) }}</td>
               <td class="actions">
                 <router-link :to="`/dig/${dig.metadata.name}`" class="btn btn-secondary">详情</router-link>
@@ -137,7 +135,6 @@ export default {
       deleting.value = true
       try {
         await kubernetesApi.deleteDig(digToDelete.value.metadata.name)
-        // 从列表中移除
         digs.value = digs.value.filter(d => d.metadata.name !== digToDelete.value.metadata.name)
         showDeleteConfirm.value = false
       } catch (err) {

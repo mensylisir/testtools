@@ -55,7 +55,6 @@ export default {
     const loading = ref(false)
     const error = ref(null)
 
-    // 获取命名空间列表
     const fetchNamespaces = async () => {
       loading.value = true
       error.value = null
@@ -71,7 +70,6 @@ export default {
       }
     }
 
-    // 切换显示/隐藏下拉菜单
     const toggleNamespaceOptions = () => {
       showNamespaceOptions.value = !showNamespaceOptions.value
       if (showNamespaceOptions.value) {
@@ -79,12 +77,10 @@ export default {
       }
     }
 
-    // 隐藏下拉菜单
     const hideNamespaceOptions = () => {
       showNamespaceOptions.value = false
     }
 
-    // 选择命名空间
     const selectNamespace = (namespace) => {
       currentNamespace.value = namespace
       namespacesApi.saveCurrentNamespace(namespace)
@@ -92,7 +88,6 @@ export default {
       hideNamespaceOptions()
     }
 
-    // 初始化组件
     onMounted(() => {
       currentNamespace.value = namespacesApi.getCurrentNamespace()
     })

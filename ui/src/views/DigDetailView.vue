@@ -169,10 +169,6 @@
                 <div class="summary-value">{{ testReport.status.summary.failed }}</div>
               </div>
 
-              <div class="summary-item">
-                <div class="summary-label">平均响应时间</div>
-                <div class="summary-value">{{ testReport.status.summary.averageResponseTime || '-' }}</div>
-              </div>
             </div>
 
             <h4 class="mb-4">最近结果</h4>

@@ -20,10 +20,10 @@
           <small>只能使用小写字母、数字和连字符，且必须以字母开头</small>
         </div>
         <div class="form-group">
-          <label for="target">目标主机/IP地址 *</label>
+          <label for="host">目标主机/IP地址 *</label>
           <input
               type="text"
-              id="target"
+              id="host"
               v-model="pingForm.spec.host"
               class="form-control"
               required
@@ -158,7 +158,7 @@ export default {
     const pingForm = reactive({
       name: '',
       spec: {
-        target: '',
+        host: '',
         count: 5,
         interval: 1,
         timeout: 5,
@@ -172,7 +172,7 @@ export default {
       const namePattern = /^[a-z][a-z0-9-]*$/
       const isNameValid = namePattern.test(pingForm.name)
 
-      const target = pingForm.spec.target.trim();
+      const target = pingForm.spec.host.trim();
       const domainRegex = /^(?!:\/\/)([a-zA-Z0-9-_]+\.)*[a-zA-Z0-9][a-zA-Z0-9-_]+\.[a-zA-Z]{2,}$/;
       const ipv4Regex = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
       const ipv6Regex = /^(([0-9a-fA-F]{1,4}):){7}([0-9a-fA-F]{1,4})$/;
@@ -214,7 +214,7 @@ export default {
 
     const resetForm = () => {
       pingForm.name = ''
-      pingForm.spec.target = ''
+      pingForm.spec.host = ''
       pingForm.spec.count = ''
       pingForm.spec.interval = ''
       pingForm.spec.timeout = ''

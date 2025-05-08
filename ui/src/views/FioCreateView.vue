@@ -25,7 +25,7 @@
           <input
               type="text"
               id="filename"
-              v-model="fioForm.spec.filename"
+              v-model="fioForm.spec.filePath"
               class="form-control"
               required
               placeholder="/path/to/test"
@@ -38,7 +38,7 @@
             <label for="readwrite">测试类型 *</label>
             <select
                 id="readwrite"
-                v-model="fioForm.spec.readwrite"
+                v-model="fioForm.spec.readWrite"
                 required
                 class="form-control"
             >
@@ -77,7 +77,7 @@
               <input
                   type="number"
                   id="bs"
-                  v-model.number="fioForm.spec.bs"
+                  v-model.number="fioForm.spec.blockSize"
                   min="1"
                   class="form-control"
               />
@@ -94,7 +94,7 @@
             <input
                 type="number"
                 id="iodepth"
-                v-model.number="fioForm.spec.iodepth"
+                v-model.number="fioForm.spec.ioDepth"
                 min="1"
                 class="form-control"
             />
@@ -190,11 +190,11 @@ export default {
     const fioForm = reactive({
       name: '',
       spec: {
-        filename: '/tmp/test',
-        readwrite: 'read',
+        filePath: '/tmp/test',
+        readWrite: 'read',
         size: 100,
-        bs: 4,
-        iodepth: 8,
+        blockSize: 4,
+        ioDepth: 8,
         runtime: 60,
         nodeName: ''
       }
@@ -220,13 +220,13 @@ export default {
     })
 
     watch(bsUnit, (newUnit, oldUnit) => {
-      if (fioForm.spec.bs === null || fioForm.spec.bs === '') return
+      if (fioForm.spec.blockSize === null || fioForm.spec.blockSize === '') return
 
       // 转换为新单位
       if (oldUnit === 'K' && newUnit === 'M') {
-        fioForm.spec.bs = Math.max(1, Math.round(fioForm.spec.bs / 1024))
+        fioForm.spec.blockSize = Math.max(1, Math.round(fioForm.spec.blockSize / 1024))
       } else if (oldUnit === 'M' && newUnit === 'K') {
-        fioForm.spec.bs = fioForm.spec.bs * 1024
+        fioForm.spec.blockSize = fioForm.spec.blockSize * 1024
       }
     })
 
@@ -234,9 +234,9 @@ export default {
       const namePattern = /^[a-z][a-z0-9-]*$/
       const isNameValid = namePattern.test(fioForm.name)
 
-      const isFileNameValid = !!fioForm.spec.filename.trim()
+      const isFileNameValid = !!fioForm.spec.filePath.trim()
 
-      const isReadWriteValid = !!fioForm.spec.readwrite.trim()
+      const isReadWriteValid = !!fioForm.spec.readWrite.trim()
 
       return isNameValid && isFileNameValid && isReadWriteValid
 
@@ -247,7 +247,7 @@ export default {
     }
 
     const getFormattedBs = () => {
-      return `${fioForm.spec.bs}${bsUnit.value}`
+      return `${fioForm.spec.blockSize}${bsUnit.value}`
     }
 
     const createFio = async () => {
@@ -260,7 +260,7 @@ export default {
         const cleanedSpec = {
           ...fioForm.spec,
           size: getFormattedSize(),
-          bs: getFormattedBs()
+          blockSize: getFormattedBs()
         }
 
         Object.keys(cleanedSpec).forEach((key) => {
@@ -286,11 +286,11 @@ export default {
 
     const resetForm = () => {
       fioForm.name = ''
-      fioForm.spec.filename = ''
-      fioForm.spec.readwrite = ''
+      fioForm.spec.filePath = ''
+      fioForm.spec.readWrite = ''
       fioForm.spec.size = ''
-      fioForm.spec.bs = ''
-      fioForm.spec.iodepth = ''
+      fioForm.spec.blockSize = ''
+      fioForm.spec.ioDepth = ''
       fioForm.spec.runtime = ''
       fioForm.spec.nodeName = ''
     }
